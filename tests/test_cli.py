@@ -151,6 +151,20 @@ class TestMissingContractAddress:
         assert exit_code == EXIT_USAGE or exit_code == EXIT_BLOCKCHAIN
 
 
+class TestBlockchainIncompleteConfig:
+    def test_missing_rpc_url(self, fake_image):
+        addr = "0x1234567890abcdef1234567890abcdef12345678"
+        with patch.dict(os.environ, {"SEPOLIA_RPC_URL": "", "SEPOLIA_PRIVATE_KEY": "0xabc"}, clear=False):
+            exit_code = main(["--image", fake_image, "--contract-address", addr])
+        assert exit_code == EXIT_BLOCKCHAIN
+
+    def test_missing_private_key(self, fake_image):
+        addr = "0x1234567890abcdef1234567890abcdef12345678"
+        with patch.dict(os.environ, {"SEPOLIA_RPC_URL": "https://rpc.example.com", "SEPOLIA_PRIVATE_KEY": ""}, clear=False):
+            exit_code = main(["--image", fake_image, "--contract-address", addr])
+        assert exit_code == EXIT_BLOCKCHAIN
+
+
 class TestInvalidContractAddress:
     def test_invalid_address_rejected(self, fake_image):
         with pytest.raises(SystemExit):

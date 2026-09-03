@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -122,6 +123,14 @@ def main(argv: list[str] | None = None) -> int:
     if blockchain_enabled and not contract_address:
         print(json.dumps({"error": "Blockchain enabled but --contract-address not provided"}))
         return EXIT_BLOCKCHAIN
+
+    if blockchain_enabled:
+        if not os.environ.get("SEPOLIA_RPC_URL"):
+            print(json.dumps({"error": "SEPOLIA_RPC_URL environment variable is not set"}))
+            return EXIT_BLOCKCHAIN
+        if not os.environ.get("SEPOLIA_PRIVATE_KEY"):
+            print(json.dumps({"error": "SEPOLIA_PRIVATE_KEY environment variable is not set"}))
+            return EXIT_BLOCKCHAIN
 
     pipeline = VerificationPipeline(
         blockchain_enabled=blockchain_enabled,

@@ -28,6 +28,23 @@ class BlockchainRecord:
     block_number: int | None
     confirmed: bool
     explorer_url: str | None
+    duplicate: bool = False
+
+
+@dataclass(frozen=True)
+class DeploymentRecord:
+    contract_address: str
+    transaction_hash: str | None
+    block_number: int | None
+    chain_id: int
+
+
+@dataclass(frozen=True)
+class VerificationRecord:
+    verification_hash: str
+    recorder: str
+    timestamp: int
+    exists: bool
 
 
 def compute_verification_hash(data: dict) -> str:
@@ -48,11 +65,20 @@ def _load_config() -> tuple[str, str]:
     return rpc_url, private_key
 
 
-def _validate_chain(w3: Web3) -> None:
+def _validate_chain(w3: Web3) -> int:
     chain_id = w3.eth.chain_id
     if chain_id != SEPOLIA_CHAIN_ID:
         raise BlockchainError(
             f"Connected to chain ID {chain_id}, expected Sepolia ({SEPOLIA_CHAIN_ID})"
+        )
+    return chain_id
+
+
+def _assert_sufficient_balance(w3: Web3, account_address: str) -> None:
+    balance = w3.eth.get_balance(account_address)
+    if balance == 0:
+        raise BlockchainError(
+            f"Account {account_address} has zero balance; fund it with Sepolia test ETH"
         )
 
 
@@ -84,15 +110,25 @@ def compile_contract() -> dict:
     }
 
 
-def deploy_contract(contract_address: str | None = None) -> str:
+def deploy_contract(contract_address: str | None = None) -> DeploymentRecord:
     rpc_url, private_key = _load_config()
     w3 = Web3(Web3.HTTPProvider(rpc_url))
-    _validate_chain(w3)
+    chain_id = _validate_chain(w3)
 
     account = w3.eth.account.from_key(private_key)
 
     if contract_address:
-        return contract_address
+        resolved = Web3.to_checksum_address(contract_address)
+        if not w3.eth.get_code(resolved):
+            raise BlockchainError(f"No contract code found at {resolved}")
+        return DeploymentRecord(
+            contract_address=resolved,
+            transaction_hash=None,
+            block_number=None,
+            chain_id=chain_id,
+        )
+
+    _assert_sufficient_balance(w3, account.address)
 
     compiled = compile_contract()
     contract = w3.eth.contract(abi=compiled["abi"], bytecode=compiled["bytecode"])
@@ -100,7 +136,7 @@ def deploy_contract(contract_address: str | None = None) -> str:
     tx = contract.constructor().build_transaction({
         "from": account.address,
         "nonce": w3.eth.get_transaction_count(account.address),
-        "chainId": SEPOLIA_CHAIN_ID,
+        "chainId": chain_id,
         "gas": DEFAULT_GAS_LIMIT,
         "gasPrice": w3.eth.gas_price,
     })
@@ -112,8 +148,17 @@ def deploy_contract(contract_address: str | None = None) -> str:
     if receipt.status != 1:
         raise BlockchainError(f"Deployment failed: tx {tx_hash.hex()}")
 
-    logger.info("Contract deployed at %s (block %d)", receipt.contractAddress, receipt.blockNumber)
-    return receipt.contractAddress
+    address = receipt.contractAddress
+    if not w3.eth.get_code(address):
+        raise BlockchainError(f"No code found at deployed address {address}")
+
+    logger.info("Contract deployed at %s (block %d)", address, receipt.blockNumber)
+    return DeploymentRecord(
+        contract_address=address,
+        transaction_hash=tx_hash.hex(),
+        block_number=receipt.blockNumber,
+        chain_id=chain_id,
+    )
 
 
 def record_verification(contract_address: str, verification_data: dict) -> BlockchainRecord:
@@ -122,7 +167,7 @@ def record_verification(contract_address: str, verification_data: dict) -> Block
 
     rpc_url, private_key = _load_config()
     w3 = Web3(Web3.HTTPProvider(rpc_url))
-    _validate_chain(w3)
+    chain_id = _validate_chain(w3)
 
     compiled = compile_contract()
     account = w3.eth.account.from_key(private_key)
@@ -130,20 +175,21 @@ def record_verification(contract_address: str, verification_data: dict) -> Block
 
     already_exists = contract.functions.verificationExists(verification_bytes32).call()
     if already_exists:
-        record = contract.functions.getRecord(verification_bytes32).call()
-        existing_tx = f"0x{'0' * 64}"
         return BlockchainRecord(
             verification_hash=verification_hash,
             transaction_hash=None,
             block_number=None,
-            confirmed=True,
+            confirmed=False,
             explorer_url=None,
+            duplicate=True,
         )
+
+    _assert_sufficient_balance(w3, account.address)
 
     tx = contract.functions.recordVerification(verification_bytes32).build_transaction({
         "from": account.address,
         "nonce": w3.eth.get_transaction_count(account.address),
-        "chainId": SEPOLIA_CHAIN_ID,
+        "chainId": chain_id,
         "gas": DEFAULT_GAS_LIMIT,
         "gasPrice": w3.eth.gas_price,
     })
@@ -174,3 +220,21 @@ def verify_on_chain(contract_address: str, verification_hash: str) -> bool:
 
     verification_bytes32 = bytes.fromhex(verification_hash[2:])
     return contract.functions.verificationExists(verification_bytes32).call()
+
+
+def get_verification_record(contract_address: str, verification_hash: str) -> VerificationRecord:
+    rpc_url, _ = _load_config()
+    w3 = Web3(Web3.HTTPProvider(rpc_url))
+    _validate_chain(w3)
+
+    compiled = compile_contract()
+    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=compiled["abi"])
+
+    verification_bytes32 = bytes.fromhex(verification_hash[2:])
+    recorder, timestamp, exists = contract.functions.getRecord(verification_bytes32).call()
+    return VerificationRecord(
+        verification_hash=verification_hash,
+        recorder=recorder,
+        timestamp=timestamp,
+        exists=exists,
+    )

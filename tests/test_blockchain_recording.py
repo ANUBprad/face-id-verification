@@ -11,8 +11,16 @@ from face_id_verification.blockchain_recording import (
     SEPOLIA_CHAIN_ID,
     BlockchainError,
     BlockchainRecord,
+    DeploymentRecord,
+    VerificationRecord,
     compute_verification_hash,
     compile_contract,
+    deploy_contract,
+    get_verification_record,
+    record_verification,
+    verify_on_chain,
+    _assert_sufficient_balance,
+    _validate_chain,
 )
 
 
@@ -75,6 +83,27 @@ class TestBlockchainRecord:
         assert record.transaction_hash is None
         assert record.block_number is None
 
+    def test_duplicate_defaults_false(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc",
+            transaction_hash=None,
+            block_number=None,
+            confirmed=False,
+            explorer_url=None,
+        )
+        assert record.duplicate is False
+
+    def test_duplicate_flag(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc",
+            transaction_hash=None,
+            block_number=None,
+            confirmed=False,
+            explorer_url=None,
+            duplicate=True,
+        )
+        assert record.duplicate is True
+
 
 class TestCompileContract:
     def test_compile_success(self):
@@ -117,11 +146,86 @@ class TestChainValidation:
     def test_wrong_chain_id(self):
         mock_w3 = MagicMock()
         mock_w3.eth.chain_id = 1
+        with pytest.raises(BlockchainError, match="chain ID"):
+            _validate_chain(mock_w3)
 
-        with patch("face_id_verification.blockchain_recording._validate_chain") as mock_validate:
-            mock_validate.side_effect = BlockchainError("Connected to chain ID 1, expected Sepolia (11155111)")
-            with pytest.raises(BlockchainError, match="chain ID"):
-                mock_validate(mock_w3)
+    def test_correct_chain_id(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        assert _validate_chain(mock_w3) == SEPOLIA_CHAIN_ID
+
+
+class TestDeploymentRecord:
+    def test_fields(self):
+        record = DeploymentRecord(
+            contract_address="0xabc",
+            transaction_hash="0xdef",
+            block_number=123,
+            chain_id=SEPOLIA_CHAIN_ID,
+        )
+        assert record.contract_address == "0xabc"
+        assert record.transaction_hash == "0xdef"
+        assert record.block_number == 123
+        assert record.chain_id == SEPOLIA_CHAIN_ID
+
+
+class TestVerificationRecord:
+    def test_fields(self):
+        record = VerificationRecord(
+            verification_hash="0xabc",
+            recorder="0xrecorder",
+            timestamp=123,
+            exists=True,
+        )
+        assert record.recorder == "0xrecorder"
+        assert record.timestamp == 123
+        assert record.exists is True
+
+
+class TestBalanceCheck:
+    def test_zero_balance_raises(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.get_balance.return_value = 0
+        with pytest.raises(BlockchainError, match="zero balance"):
+            _assert_sufficient_balance(mock_w3, "0xabc")
+
+    def test_positive_balance_ok(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.get_balance.return_value = 10**17
+        _assert_sufficient_balance(mock_w3, "0xabc")
+
+
+class TestDeployContractExistingAddress:
+    def test_returns_record_when_code_exists(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        mock_w3.eth.get_code.return_value = b"\x00\x01"
+        address = "0x1234567890abcdef1234567890abcdef12345678"
+        expected = Web3.to_checksum_address(address)
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3") as mock_web3:
+                mock_web3.to_checksum_address = Web3.to_checksum_address
+                mock_web3.HTTPProvider.return_value = MagicMock()
+                mock_web3.return_value = mock_w3
+                result = deploy_contract(address)
+        assert result.contract_address == expected
+        assert result.transaction_hash is None
+        assert result.chain_id == SEPOLIA_CHAIN_ID
+
+    def test_raises_when_no_code_at_address(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        mock_w3.eth.get_code.return_value = b""
+        address = "0x1234567890abcdef1234567890abcdef12345678"
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3") as mock_web3:
+                mock_web3.to_checksum_address = Web3.to_checksum_address
+                mock_web3.HTTPProvider.return_value = MagicMock()
+                mock_web3.return_value = mock_w3
+                with pytest.raises(BlockchainError, match="No contract code"):
+                    deploy_contract(address)
 
 
 class TestRecordVerificationParsing:
@@ -141,3 +245,102 @@ class TestRecordVerificationParsing:
         b = bytes.fromhex(h[2:])
         assert len(b) == 32
         assert b.hex() == h[2:]
+
+
+class TestRecordVerificationMocked:
+    def _contract_with(self, exists_response, get_record_response=None):
+        contract = MagicMock()
+        contract.functions.verificationExists.return_value.call.return_value = exists_response
+        contract.functions.getRecord.return_value.call.return_value = get_record_response
+        return contract
+
+    @staticmethod
+    def _patch_web3(mock_w3):
+        mock_web3 = MagicMock()
+        mock_web3.keccak = Web3.keccak
+        mock_web3.to_checksum_address = Web3.to_checksum_address
+        mock_web3.HTTPProvider.return_value = MagicMock()
+        mock_web3.return_value = mock_w3
+        return mock_web3
+
+    def test_duplicate_returns_duplicate_flag(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        contract = self._contract_with(True, ("0x" + "a" * 40, 123, True))
+        mock_w3.eth.contract.return_value = contract
+
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3", self._patch_web3(mock_w3)):
+                result = record_verification(
+                    "0x1234567890abcdef1234567890abcdef12345678",
+                    {"payload": "test"},
+                )
+        assert result.duplicate is True
+        assert result.transaction_hash is None
+        contract.functions.recordVerification.assert_not_called()
+
+    def test_zero_balance_blocks_recording(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        contract = self._contract_with(False)
+        mock_w3.eth.contract.return_value = contract
+        mock_w3.eth.get_balance.return_value = 0
+
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3", self._patch_web3(mock_w3)):
+                with pytest.raises(BlockchainError, match="zero balance"):
+                    record_verification(
+                        "0x1234567890abcdef1234567890abcdef12345678",
+                        {"payload": "test"},
+                    )
+        contract.functions.recordVerification.assert_not_called()
+
+
+class TestVerifyOnChainMocked:
+    def test_returns_exists(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        contract = MagicMock()
+        contract.functions.verificationExists.return_value.call.return_value = True
+        mock_w3.eth.contract.return_value = contract
+
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3") as mock_web3:
+                mock_web3.keccak = Web3.keccak
+                mock_web3.to_checksum_address = Web3.to_checksum_address
+                mock_web3.HTTPProvider.return_value = MagicMock()
+                mock_web3.return_value = mock_w3
+                h = compute_verification_hash({"a": 1})
+                result = verify_on_chain(
+                    "0x1234567890abcdef1234567890abcdef12345678", h
+                )
+        assert result is True
+
+
+class TestGetVerificationRecordMocked:
+    def test_parses_record(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        contract = MagicMock()
+        recorder = "0x" + "ab" * 20
+        contract.functions.getRecord.return_value.call.return_value = (recorder, 12345, True)
+        mock_w3.eth.contract.return_value = contract
+
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3") as mock_web3:
+                mock_web3.keccak = Web3.keccak
+                mock_web3.to_checksum_address = Web3.to_checksum_address
+                mock_web3.HTTPProvider.return_value = MagicMock()
+                mock_web3.return_value = mock_w3
+                h = compute_verification_hash({"a": 1})
+                rec = get_verification_record(
+                    "0x1234567890abcdef1234567890abcdef12345678", h
+                )
+        assert rec.recorder == recorder
+        assert rec.timestamp == 12345
+        assert rec.exists is True
+        assert rec.verification_hash == h

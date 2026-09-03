@@ -29,6 +29,9 @@ face-id-verification = "face_id_verification.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+face_id_verification = ["contracts/*.sol"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

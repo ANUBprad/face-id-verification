@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from importlib import resources
 
 from web3 import Web3
 from web3.types import TxReceipt
@@ -55,12 +56,15 @@ def _validate_chain(w3: Web3) -> None:
         )
 
 
+def _contract_source() -> str:
+    contract_path = resources.files("face_id_verification").joinpath("contracts", "VerificationRegistry.sol")
+    return contract_path.read_text()
+
+
 def compile_contract() -> dict:
     import solcx
 
-    contract_path = os.path.join(os.path.dirname(__file__), "..", "..", "contracts", "VerificationRegistry.sol")
-    with open(contract_path) as f:
-        source = f.read()
+    source = _contract_source()
 
     compiled = solcx.compile_standard(
         {

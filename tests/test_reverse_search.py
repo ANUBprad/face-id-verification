@@ -196,6 +196,30 @@ class TestReverseImageSearcher:
         assert isinstance(result, ReverseSearchResult)
         mock_client.web_detection.assert_called_once()
 
+    def test_timeout_passed_to_api(self, tmp_path: Path):
+        img_path = tmp_path / "test.jpg"
+        img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
+
+        mock_response = MagicMock()
+        mock_response.error.message = ""
+        mock_response.web_detection.pages_with_matching_images = []
+        mock_response.web_detection.full_matching_images = []
+        mock_response.web_detection.partial_matching_images = []
+        mock_response.web_detection.visually_similar_images = []
+        mock_response.web_detection.web_entities = []
+        mock_response.web_detection.best_guess_labels = []
+
+        mock_client = MagicMock()
+        mock_client.web_detection.return_value = mock_response
+
+        searcher = ReverseImageSearcher(timeout=12.5)
+        searcher._client = mock_client
+
+        searcher.search(img_path)
+
+        _, kwargs = mock_client.web_detection.call_args
+        assert kwargs.get("timeout") == 12.5
+
     def test_missing_file(self):
         searcher = ReverseImageSearcher()
         with pytest.raises(ReverseSearchError, match="does not exist"):

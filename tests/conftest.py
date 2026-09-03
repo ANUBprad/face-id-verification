@@ -66,3 +66,18 @@ def blank_image(_test_images_dir: Path) -> Path:
     img = np.full((300, 300, 3), 128, dtype=np.uint8)
     cv2.imwrite(str(img_path), img)
     return img_path
+
+
+@pytest.fixture(scope="session")
+def gcv_test_image(_test_images_dir: Path) -> Path:
+    img_path = _test_images_dir / "gcv_test.jpg"
+    if img_path.exists() and img_path.stat().st_size > 1000:
+        return img_path
+
+    img = np.full((480, 480, 3), 240, dtype=np.uint8)
+    center = (240, 240)
+    cv2.circle(img, center, 120, (40, 40, 200), -1)
+    cv2.rectangle(img, (60, 320), (420, 380), (20, 160, 40), -1)
+    cv2.putText(img, "TEST", (160, 260), cv2.FONT_HERSHEY_SIMPLEX, 2, (200, 200, 20), 4)
+    cv2.imwrite(str(img_path), img)
+    return img_path

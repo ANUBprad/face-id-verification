@@ -387,3 +387,11 @@ class TestReportModel:
         assert r.error is None
         r_err = MetadataResult(source_url="https://example.com", title=None, description=None, platform=None, error="failed")
         assert r_err.error == "failed"
+
+
+class TestPipelineTimeout:
+    def test_timeout_passed_to_searcher(self):
+        with patch("face_id_verification.pipeline.FaceAnalyzer") as mock_fa, \
+             patch("face_id_verification.pipeline.ReverseImageSearcher") as mock_rs:
+            VerificationPipeline(timeout=25.0)
+            mock_rs.assert_called_once_with(timeout=25.0)

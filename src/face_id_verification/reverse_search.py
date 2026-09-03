@@ -97,8 +97,9 @@ def _parse_web_detection(response) -> ReverseSearchResult:
 
 
 class ReverseImageSearcher:
-    def __init__(self) -> None:
+    def __init__(self, timeout: float | None = None) -> None:
         self._client = None
+        self._timeout = timeout
 
     def _ensure_client(self) -> None:
         if self._client is not None:
@@ -125,7 +126,7 @@ class ReverseImageSearcher:
             from google.cloud import vision
 
             image = vision.Image(content=image_bytes)
-            response = self._client.web_detection(image=image)
+            response = self._client.web_detection(image=image, timeout=self._timeout)
         except Exception as e:
             raise ReverseSearchError(
                 f"Google Cloud Vision API request failed: {e}"

@@ -135,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     pipeline = VerificationPipeline(
         blockchain_enabled=blockchain_enabled,
         contract_address=contract_address,
+        timeout=args.timeout,
     )
 
     try:

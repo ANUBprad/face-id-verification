@@ -69,9 +69,10 @@ class VerificationPipeline:
         metadata_extractor: callable = extract_metadata,
         blockchain_enabled: bool = False,
         contract_address: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         self._face_analyzer = face_analyzer or FaceAnalyzer()
-        self._reverse_searcher = reverse_searcher or ReverseImageSearcher()
+        self._reverse_searcher = reverse_searcher or ReverseImageSearcher(timeout=timeout)
         self._metadata_extractor = metadata_extractor or extract_metadata
         self._blockchain_enabled = blockchain_enabled
         self._contract_address = contract_address

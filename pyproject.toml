@@ -23,6 +23,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
+[project.scripts]
+face-id-verification = "face_id_verification.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

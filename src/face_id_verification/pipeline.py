@@ -119,7 +119,9 @@ class VerificationPipeline:
         verification_payload = self._build_payload(image_str, faces, search_result, metadata_results)
         verification_hash = compute_verification_hash(verification_payload)
 
-        blockchain_record, blockchain_error = self._record_blockchain(verification_hash)
+        blockchain_record, blockchain_error = self._record_blockchain(
+            verification_hash, verification_payload
+        )
 
         status = self._determine_status(faces, search_result, search_error, metadata_results)
 
@@ -257,7 +259,7 @@ class VerificationPipeline:
         return payload
 
     def _record_blockchain(
-        self, verification_hash: str
+        self, verification_hash: str, verification_payload: dict
     ) -> tuple[BlockchainRecord | None, str | None]:
         if not self._blockchain_enabled:
             return None, None
@@ -266,7 +268,7 @@ class VerificationPipeline:
             return None, "Blockchain enabled but contract_address not configured"
 
         try:
-            record = record_verification(self._contract_address, {"hash": verification_hash})
+            record = record_verification(self._contract_address, verification_payload)
             return record, None
         except BlockchainError as e:
             return None, str(e)

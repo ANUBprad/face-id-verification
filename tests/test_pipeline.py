@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from face_id_verification.blockchain_recording import BlockchainRecord, compute_verification_hash
 from face_id_verification.face_detection import DetectedFace, FaceDetectionError, FaceAnalyzer
 from face_id_verification.metadata_extraction import MetadataExtractionError, PostMetadata
 from face_id_verification.pipeline import (
@@ -307,6 +308,49 @@ class TestBlockchainConfigurationFailure:
         assert report.status == "success"
         assert report.blockchain is None
         assert report.blockchain_error == "Blockchain enabled but contract_address not configured"
+
+
+class TestBlockchainOnChainKeyConsistency:
+    def test_recorded_hash_matches_report_hash(self):
+        face = _make_face()
+        search = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+        )
+
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [face]
+
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search
+
+        captured = {}
+
+        def fake_record_verification(contract_address, verification_data):
+            recorded_hash = compute_verification_hash(verification_data)
+            captured["recorded_hash"] = recorded_hash
+            return BlockchainRecord(
+                verification_hash=recorded_hash,
+                transaction_hash="0x" + "1" * 64,
+                block_number=123,
+                confirmed=True,
+                explorer_url="https://sepolia.etherscan.io/tx/0x" + "1" * 64,
+            )
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=True,
+            contract_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+
+        with patch("face_id_verification.pipeline.record_verification", fake_record_verification):
+            report = pipeline.verify("test.jpg")
+
+        assert report.status == "success"
+        assert report.verification_hash == captured["recorded_hash"]
+        assert report.blockchain is not None
+        assert report.blockchain.verification_hash == report.verification_hash
 
 
 class TestMultipleFaces:

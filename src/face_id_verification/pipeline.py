@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -61,6 +62,15 @@ class VerificationReport:
     errors: list[str] = field(default_factory=list)
 
 
+def image_content_hash(image_path: str | Path) -> str:
+    path = Path(image_path)
+    try:
+        data = path.read_bytes()
+    except OSError as e:
+        raise FaceDetectionError(f"Failed to read image bytes: {path}") from e
+    return "0x" + hashlib.sha256(data).hexdigest()
+
+
 class VerificationPipeline:
     def __init__(
         self,
@@ -112,11 +122,43 @@ class VerificationPipeline:
                 errors=[],
             )
 
+        if len(faces) > 1:
+            return VerificationReport(
+                status="multiple_faces",
+                input_image=image_str,
+                faces=[],
+                reverse_search=None,
+                reverse_search_error=None,
+                metadata=[],
+                metadata_errors=[],
+                blockchain=None,
+                blockchain_error=None,
+                verification_hash=None,
+                errors=[f"Multiple faces detected (found {len(faces)}); exactly one face is required"],
+            )
+
+        try:
+            content_hash = image_content_hash(image_path)
+        except FaceDetectionError as e:
+            return VerificationReport(
+                status="face_detection_failed",
+                input_image=image_str,
+                faces=[],
+                reverse_search=None,
+                reverse_search_error=None,
+                metadata=[],
+                metadata_errors=[],
+                blockchain=None,
+                blockchain_error=None,
+                verification_hash=None,
+                errors=[str(e)],
+            )
+
         search_result, search_error = self._reverse_search(image_path)
 
         metadata_results, metadata_errors = self._extract_metadata(search_result)
 
-        verification_payload = self._build_payload(image_str, faces, search_result, metadata_results)
+        verification_payload = self._build_payload(content_hash, faces, search_result, metadata_results)
         verification_hash = compute_verification_hash(verification_payload)
 
         blockchain_record, blockchain_error = self._record_blockchain(
@@ -144,7 +186,6 @@ class VerificationPipeline:
             detected = self._face_analyzer.detect_faces(image_path)
             results = []
             for face in detected:
-                import hashlib
                 emb_hash = "0x" + hashlib.sha256(face.embedding.tobytes()).hexdigest()
                 results.append(FaceResult(
                     bounding_box=face.bounding_box,
@@ -216,13 +257,13 @@ class VerificationPipeline:
 
     def _build_payload(
         self,
-        image_path: str,
+        image_content_hash_value: str,
         faces: list[FaceResult],
         search_result: ReverseSearchResult | None,
         metadata_results: list[MetadataResult],
     ) -> dict:
         payload: dict = {
-            "input_image": image_path,
+            "image_content_hash": image_content_hash_value,
             "faces": [
                 {
                     "bounding_box": f.bounding_box,

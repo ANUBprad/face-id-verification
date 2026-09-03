@@ -15,6 +15,7 @@ from face_id_verification.pipeline import (
     MetadataResult,
     VerificationPipeline,
     VerificationReport,
+    image_content_hash,
 )
 from face_id_verification.reverse_search import (
     MatchingPage,
@@ -46,8 +47,22 @@ def _make_metadata(url="https://example.com", title="Test", desc="Desc", platfor
     return PostMetadata(source_url=url, title=title, description=desc, platform=platform)
 
 
+TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c62000100000500010d0a2db40000000049454e44ae426082"
+)
+
+
+@pytest.fixture
+def sample_image(tmp_path):
+    path = tmp_path / "sample.png"
+    path.write_bytes(TINY_PNG)
+    return str(path)
+
+
+
 class TestCompleteSuccessfulPipeline:
-    def test_full_success(self):
+    def test_full_success(self, sample_image):
         face = _make_face()
         search = _make_search_result(
             pages=[MatchingPage(url="https://example.com/page1", page_title="Page 1")],
@@ -71,7 +86,7 @@ class TestCompleteSuccessfulPipeline:
             blockchain_enabled=False,
         )
 
-        report = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
 
         assert report.status == "success"
         assert len(report.faces) == 1
@@ -80,7 +95,7 @@ class TestCompleteSuccessfulPipeline:
         assert report.verification_hash is not None
         assert report.verification_hash.startswith("0x")
 
-    def test_json_serializable(self):
+    def test_json_serializable(self, sample_image):
         face = _make_face()
         mock_analyzer = MagicMock(spec=FaceAnalyzer)
         mock_analyzer.detect_faces.return_value = [face]
@@ -95,7 +110,7 @@ class TestCompleteSuccessfulPipeline:
             blockchain_enabled=False,
         )
 
-        report = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
         report_dict = json.loads(json.dumps({
             "status": report.status,
             "faces": [{"bbox": f.bounding_box, "conf": f.detection_confidence} for f in report.faces],
@@ -145,7 +160,7 @@ class TestNoFace:
 
 
 class TestReverseSearchNoMatches:
-    def test_no_matches_continues(self):
+    def test_no_matches_continues(self, sample_image):
         face = _make_face()
         search = _make_search_result()
 
@@ -162,7 +177,7 @@ class TestReverseSearchNoMatches:
             blockchain_enabled=False,
         )
 
-        report = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
 
         assert report.status == "success"
         assert report.reverse_search is not None
@@ -170,7 +185,7 @@ class TestReverseSearchNoMatches:
 
 
 class TestReverseSearchFailure:
-    def test_search_failure_preserved(self):
+    def test_search_failure_preserved(self, sample_image):
         face = _make_face()
 
         mock_analyzer = MagicMock(spec=FaceAnalyzer)
@@ -186,7 +201,7 @@ class TestReverseSearchFailure:
             blockchain_enabled=False,
         )
 
-        report = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
 
         assert report.status == "reverse_search_failed"
         assert report.reverse_search_error == "API quota exceeded"
@@ -195,7 +210,7 @@ class TestReverseSearchFailure:
 
 
 class TestMetadataPartialFailure:
-    def test_one_page_fails(self):
+    def test_one_page_fails(self, sample_image):
         face = _make_face()
         search = _make_search_result(
             pages=[
@@ -222,7 +237,7 @@ class TestMetadataPartialFailure:
             blockchain_enabled=False,
         )
 
-        report = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
 
         assert report.status == "success"
         assert len(report.metadata) == 2
@@ -230,7 +245,7 @@ class TestMetadataPartialFailure:
         assert any(m.error is None for m in report.metadata)
         assert len(report.metadata_errors) == 1
 
-    def test_all_pages_fail(self):
+    def test_all_pages_fail(self, sample_image):
         face = _make_face()
         search = _make_search_result(
             pages=[MatchingPage(url="https://example.com/bad1", page_title="Bad1")]
@@ -252,7 +267,7 @@ class TestMetadataPartialFailure:
             blockchain_enabled=False,
         )
 
-        report = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
 
         assert report.status == "metadata_failed"
         assert len(report.metadata) == 1
@@ -260,7 +275,7 @@ class TestMetadataPartialFailure:
 
 
 class TestBlockchainDisabled:
-    def test_no_blockchain_call(self):
+    def test_no_blockchain_call(self, sample_image):
         face = _make_face()
         search = _make_search_result()
 
@@ -277,7 +292,7 @@ class TestBlockchainDisabled:
             blockchain_enabled=False,
         )
 
-        report = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
 
         assert report.blockchain is None
         assert report.blockchain_error is None
@@ -285,7 +300,7 @@ class TestBlockchainDisabled:
 
 
 class TestBlockchainConfigurationFailure:
-    def test_enabled_no_address(self):
+    def test_enabled_no_address(self, sample_image):
         face = _make_face()
         search = _make_search_result()
 
@@ -303,7 +318,7 @@ class TestBlockchainConfigurationFailure:
             contract_address=None,
         )
 
-        report = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
 
         assert report.status == "success"
         assert report.blockchain is None
@@ -311,7 +326,7 @@ class TestBlockchainConfigurationFailure:
 
 
 class TestBlockchainOnChainKeyConsistency:
-    def test_recorded_hash_matches_report_hash(self):
+    def test_recorded_hash_matches_report_hash(self, sample_image):
         face = _make_face()
         search = _make_search_result(
             pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
@@ -345,7 +360,7 @@ class TestBlockchainOnChainKeyConsistency:
         )
 
         with patch("face_id_verification.pipeline.record_verification", fake_record_verification):
-            report = pipeline.verify("test.jpg")
+            report = pipeline.verify(sample_image)
 
         assert report.status == "success"
         assert report.verification_hash == captured["recorded_hash"]
@@ -354,15 +369,11 @@ class TestBlockchainOnChainKeyConsistency:
 
 
 class TestMultipleFaces:
-    def test_multiple_faces_all_processed(self):
-        faces = [_make_face(bbox=(10, 20, 100, 100)), _make_face(bbox=(200, 200, 300, 300))]
-        search = _make_search_result()
-
+    def test_zero_faces_preserves_no_face_behavior(self):
         mock_analyzer = MagicMock(spec=FaceAnalyzer)
-        mock_analyzer.detect_faces.return_value = faces
+        mock_analyzer.detect_faces.return_value = []
 
         mock_searcher = MagicMock()
-        mock_searcher.search.return_value = search
 
         pipeline = VerificationPipeline(
             face_analyzer=mock_analyzer,
@@ -373,13 +384,12 @@ class TestMultipleFaces:
 
         report = pipeline.verify("test.jpg")
 
-        assert len(report.faces) == 2
-        assert report.faces[0].bounding_box == (10, 20, 100, 100)
-        assert report.faces[1].bounding_box == (200, 200, 300, 300)
+        assert report.status == "no_face_detected"
+        assert report.faces == []
+        assert report.verification_hash is None
+        mock_searcher.search.assert_not_called()
 
-
-class TestVerificationPayload:
-    def test_payload_deterministic(self):
+    def test_single_face_follows_normal_pipeline(self, sample_image):
         face = _make_face()
         search = _make_search_result(
             pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
@@ -398,10 +408,182 @@ class TestVerificationPayload:
             blockchain_enabled=False,
         )
 
-        report1 = pipeline.verify("test.jpg")
-        report2 = pipeline.verify("test.jpg")
+        report = pipeline.verify(sample_image)
+
+        assert report.status == "success"
+        assert len(report.faces) == 1
+        assert report.verification_hash is not None
+        mock_searcher.search.assert_called_once()
+
+    def test_two_faces_rejected(self):
+        faces = [_make_face(bbox=(10, 20, 100, 100)), _make_face(bbox=(200, 200, 300, 300))]
+
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = faces
+
+        mock_searcher = MagicMock()
+        mock_extractor = MagicMock()
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=mock_extractor,
+            blockchain_enabled=True,
+            contract_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+
+        with patch("face_id_verification.pipeline.record_verification") as mock_record:
+            report = pipeline.verify("test.jpg")
+
+        assert report.status == "multiple_faces"
+        assert report.faces == []
+        assert report.reverse_search is None
+        assert report.metadata == []
+        assert report.blockchain is None
+        assert report.verification_hash is None
+        assert any("found 2" in e for e in report.errors)
+        mock_searcher.search.assert_not_called()
+        mock_extractor.assert_not_called()
+        mock_record.assert_not_called()
+
+    def test_more_than_two_faces_rejected(self):
+        faces = [
+            _make_face(bbox=(10, 20, 100, 100)),
+            _make_face(bbox=(200, 200, 300, 300)),
+            _make_face(bbox=(400, 400, 500, 500)),
+        ]
+
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = faces
+
+        mock_searcher = MagicMock()
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(),
+            blockchain_enabled=False,
+        )
+
+        report = pipeline.verify("test.jpg")
+
+        assert report.status == "multiple_faces"
+        assert report.faces == []
+        assert any("found 3" in e for e in report.errors)
+        mock_searcher.search.assert_not_called()
+
+
+class TestVerificationPayload:
+    def test_payload_deterministic(self, sample_image):
+        face = _make_face()
+        search = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+        )
+
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [face]
+
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=False,
+        )
+
+        report1 = pipeline.verify(sample_image)
+        report2 = pipeline.verify(sample_image)
 
         assert report1.verification_hash == report2.verification_hash
+
+
+class TestHashReproducibility:
+    def test_image_content_hash_path_independent(self, tmp_path):
+        a = tmp_path / "a.png"
+        b = tmp_path / "sub" / "b.png"
+        b.parent.mkdir()
+        a.write_bytes(TINY_PNG)
+        b.write_bytes(TINY_PNG)
+
+        assert image_content_hash(a) == image_content_hash(b)
+
+    def test_image_content_hash_changes_with_bytes(self, tmp_path):
+        a = tmp_path / "a.png"
+        b = tmp_path / "b.png"
+        a.write_bytes(TINY_PNG)
+        b.write_bytes(TINY_PNG[:-4] + b"\x00\x00\x00\x00")
+
+        assert image_content_hash(a) != image_content_hash(b)
+
+    def test_verification_hash_path_independent(self, tmp_path):
+        path_a = tmp_path / "raw" / "same.png"
+        path_b = tmp_path / "nested" / "different-dir" / "same.png"
+        path_a.parent.mkdir(parents=True)
+        path_b.parent.mkdir(parents=True)
+        path_a.write_bytes(TINY_PNG)
+        path_b.write_bytes(TINY_PNG)
+
+        face = _make_face()
+        search = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+        )
+
+        def run(image_path):
+            mock_analyzer = MagicMock(spec=FaceAnalyzer)
+            mock_analyzer.detect_faces.return_value = [face]
+            mock_searcher = MagicMock()
+            mock_searcher.search.return_value = search
+            pipeline = VerificationPipeline(
+                face_analyzer=mock_analyzer,
+                reverse_searcher=mock_searcher,
+                metadata_extractor=lambda url: _make_metadata(url=url),
+                blockchain_enabled=False,
+            )
+            return pipeline.verify(image_path)
+
+        assert run(path_a).verification_hash == run(path_b).verification_hash
+
+    def test_payload_uses_content_hash_not_path(self, tmp_path):
+        path = tmp_path / "img.png"
+        path.write_bytes(TINY_PNG)
+        face = FaceResult(
+            bounding_box=(10, 20, 100, 100),
+            detection_confidence=0.99,
+            embedding_hash="0x" + "ab" * 32,
+        )
+
+        pipeline = VerificationPipeline(face_analyzer=MagicMock())
+
+        payload = pipeline._build_payload(image_content_hash(path), [face], None, [])
+        serialized = json.dumps(payload, sort_keys=True)
+
+        assert payload["image_content_hash"] == image_content_hash(path)
+        assert "input_image" not in payload
+        assert str(path) not in serialized
+        assert TINY_PNG.decode("latin1") not in serialized
+
+    def test_dictionary_ordering_does_not_affect_hash(self):
+        data_a = {"a": 1, "b": 2, "faces": [{"id": 1}, {"id": 2}]}
+        data_b = {"b": 2, "faces": [{"id": 1}, {"id": 2}], "a": 1}
+        assert compute_verification_hash(data_a) == compute_verification_hash(data_b)
+
+    def test_credentials_not_included(self, tmp_path):
+        path = tmp_path / "img.png"
+        path.write_bytes(TINY_PNG)
+        face = FaceResult(
+            bounding_box=(10, 20, 100, 100),
+            detection_confidence=0.99,
+            embedding_hash="0x" + "ab" * 32,
+        )
+
+        pipeline = VerificationPipeline(face_analyzer=MagicMock())
+        payload = pipeline._build_payload(image_content_hash(path), [face], None, [])
+        serialized = json.dumps(payload, sort_keys=True).lower()
+
+        for secret in ("private_key", "sepolia_", "rpcur", "api_key", "token"):
+            assert secret not in serialized
 
 
 class TestReportModel:

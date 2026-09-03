@@ -179,6 +179,12 @@ class TestNoFace:
         assert exit_code == EXIT_FACE_DETECTION
 
     @patch.object(VerificationPipeline, "verify")
+    def test_multiple_faces_exit_code(self, mock_verify, fake_image):
+        mock_verify.return_value = _make_report(status="multiple_faces")
+        exit_code = main(["--image", fake_image, "--skip-blockchain"])
+        assert exit_code == EXIT_FACE_DETECTION
+
+    @patch.object(VerificationPipeline, "verify")
     def test_no_face_json_status(self, mock_verify, fake_image, capsys):
         mock_verify.return_value = _make_report(status="no_face_detected")
         main(["--image", fake_image, "--skip-blockchain"])

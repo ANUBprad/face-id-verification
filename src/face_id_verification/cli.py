@@ -45,6 +45,7 @@ def _exit_code_for_status(status: str) -> int:
     mapping = {
         "success": EXIT_SUCCESS,
         "no_face_detected": EXIT_FACE_DETECTION,
+        "multiple_faces": EXIT_FACE_DETECTION,
         "face_detection_failed": EXIT_FACE_DETECTION,
         "reverse_search_failed": EXIT_REVERSE_SEARCH,
         "metadata_failed": EXIT_METADATA,

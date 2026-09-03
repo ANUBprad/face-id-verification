@@ -141,6 +141,22 @@ class TestConfigErrors:
             with pytest.raises(BlockchainError, match="SEPOLIA_PRIVATE_KEY"):
                 _load_config()
 
+    def test_load_rpc_config_requires_rpc_url_only(self):
+        with patch.dict(os.environ, {"SEPOLIA_RPC_URL": "", "SEPOLIA_PRIVATE_KEY": ""}, clear=False):
+            from face_id_verification.blockchain_recording import _load_rpc_config
+            with pytest.raises(BlockchainError, match="SEPOLIA_RPC_URL"):
+                _load_rpc_config()
+
+    def test_load_rpc_config_succeeds_without_private_key(self):
+        with patch.dict(os.environ, {"SEPOLIA_RPC_URL": "https://rpc.example.com", "SEPOLIA_PRIVATE_KEY": ""}, clear=False):
+            from face_id_verification.blockchain_recording import _load_rpc_config
+            assert _load_rpc_config() == "https://rpc.example.com"
+
+    def test_deploy_contract_requires_private_key(self):
+        with patch.dict(os.environ, {"SEPOLIA_RPC_URL": "https://rpc.example.com", "SEPOLIA_PRIVATE_KEY": ""}, clear=False):
+            with pytest.raises(BlockchainError, match="SEPOLIA_PRIVATE_KEY"):
+                deploy_contract()
+
 
 class TestChainValidation:
     def test_wrong_chain_id(self):
@@ -299,15 +315,15 @@ class TestRecordVerificationMocked:
 
 
 class TestVerifyOnChainMocked:
-    def test_returns_exists(self):
+    def test_returns_exists_without_private_key(self):
         mock_w3 = MagicMock()
         mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
         contract = MagicMock()
         contract.functions.verificationExists.return_value.call.return_value = True
         mock_w3.eth.contract.return_value = contract
 
-        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
-            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+        with patch("face_id_verification.blockchain_recording._load_rpc_config") as mock_load:
+            mock_load.return_value = "https://rpc.example.com"
             with patch("face_id_verification.blockchain_recording.Web3") as mock_web3:
                 mock_web3.keccak = Web3.keccak
                 mock_web3.to_checksum_address = Web3.to_checksum_address
@@ -318,10 +334,12 @@ class TestVerifyOnChainMocked:
                     "0x1234567890abcdef1234567890abcdef12345678", h
                 )
         assert result is True
+        mock_load.assert_called_once_with()
+        mock_w3.eth.account.assert_not_called()
 
 
 class TestGetVerificationRecordMocked:
-    def test_parses_record(self):
+    def test_parses_record_without_private_key(self):
         mock_w3 = MagicMock()
         mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
         contract = MagicMock()
@@ -329,8 +347,8 @@ class TestGetVerificationRecordMocked:
         contract.functions.getRecord.return_value.call.return_value = (recorder, 12345, True)
         mock_w3.eth.contract.return_value = contract
 
-        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
-            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+        with patch("face_id_verification.blockchain_recording._load_rpc_config") as mock_load:
+            mock_load.return_value = "https://rpc.example.com"
             with patch("face_id_verification.blockchain_recording.Web3") as mock_web3:
                 mock_web3.keccak = Web3.keccak
                 mock_web3.to_checksum_address = Web3.to_checksum_address
@@ -344,3 +362,5 @@ class TestGetVerificationRecordMocked:
         assert rec.timestamp == 12345
         assert rec.exists is True
         assert rec.verification_hash == h
+        mock_load.assert_called_once_with()
+        mock_w3.eth.account.assert_not_called()

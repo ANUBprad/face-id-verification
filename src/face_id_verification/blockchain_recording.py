@@ -53,12 +53,16 @@ def compute_verification_hash(data: dict) -> str:
     return "0x" + digest.hex()
 
 
-def _load_config() -> tuple[str, str]:
+def _load_rpc_config() -> str:
     rpc_url = os.environ.get("SEPOLIA_RPC_URL")
-    private_key = os.environ.get("SEPOLIA_PRIVATE_KEY")
-
     if not rpc_url:
         raise BlockchainError("SEPOLIA_RPC_URL environment variable is not set")
+    return rpc_url
+
+
+def _load_config() -> tuple[str, str]:
+    rpc_url = _load_rpc_config()
+    private_key = os.environ.get("SEPOLIA_PRIVATE_KEY")
     if not private_key:
         raise BlockchainError("SEPOLIA_PRIVATE_KEY environment variable is not set")
 
@@ -211,7 +215,7 @@ def record_verification(contract_address: str, verification_data: dict) -> Block
 
 
 def verify_on_chain(contract_address: str, verification_hash: str) -> bool:
-    rpc_url, _ = _load_config()
+    rpc_url = _load_rpc_config()
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     _validate_chain(w3)
 
@@ -223,7 +227,7 @@ def verify_on_chain(contract_address: str, verification_hash: str) -> bool:
 
 
 def get_verification_record(contract_address: str, verification_hash: str) -> VerificationRecord:
-    rpc_url, _ = _load_config()
+    rpc_url = _load_rpc_config()
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     _validate_chain(w3)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from dataclasses import dataclass
 from importlib import resources
@@ -15,6 +16,8 @@ SEPOLIA_CHAIN_ID = 11155111
 SEPOLIA_EXPLORER_BASE = "https://sepolia.etherscan.io/tx"
 
 DEFAULT_GAS_LIMIT = 100_000
+DEPLOYMENT_GAS_MARGIN = 1.2  # headroom over the node's simulation; a fixed 100k limit cannot cover bytecode deposit
+MAX_DEPLOYMENT_GAS_LIMIT = 30_000_000
 
 
 class BlockchainError(Exception):
@@ -86,6 +89,25 @@ def _assert_sufficient_balance(w3: Web3, account_address: str) -> None:
         )
 
 
+def _estimate_deployment_gas(contract, from_address: str) -> int:
+    try:
+        estimate = contract.constructor().estimate_gas({"from": from_address})
+    except Exception as exc:
+        raise BlockchainError(f"Unable to estimate deployment gas: {exc}") from exc
+
+    if not isinstance(estimate, int) or estimate <= 0:
+        raise BlockchainError(f"Node returned an invalid gas estimate: {estimate!r}")
+
+    gas_limit = math.ceil(estimate * DEPLOYMENT_GAS_MARGIN)
+
+    if gas_limit > MAX_DEPLOYMENT_GAS_LIMIT:
+        raise BlockchainError(
+            f"Estimated deployment gas {gas_limit} exceeds maximum {MAX_DEPLOYMENT_GAS_LIMIT}"
+        )
+
+    return gas_limit
+
+
 def _contract_source() -> str:
     contract_path = resources.files("face_id_verification").joinpath("contracts", "VerificationRegistry.sol")
     return contract_path.read_text()
@@ -137,11 +159,13 @@ def deploy_contract(contract_address: str | None = None) -> DeploymentRecord:
     compiled = compile_contract()
     contract = w3.eth.contract(abi=compiled["abi"], bytecode=compiled["bytecode"])
 
+    gas_limit = _estimate_deployment_gas(contract, account.address)
+
     tx = contract.constructor().build_transaction({
         "from": account.address,
         "nonce": w3.eth.get_transaction_count(account.address),
         "chainId": chain_id,
-        "gas": DEFAULT_GAS_LIMIT,
+        "gas": gas_limit,
         "gasPrice": w3.eth.gas_price,
     })
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +9,9 @@ import pytest
 from web3 import Web3
 
 from face_id_verification.blockchain_recording import (
+    DEFAULT_GAS_LIMIT,
+    DEPLOYMENT_GAS_MARGIN,
+    MAX_DEPLOYMENT_GAS_LIMIT,
     SEPOLIA_CHAIN_ID,
     BlockchainError,
     BlockchainRecord,
@@ -20,6 +24,7 @@ from face_id_verification.blockchain_recording import (
     record_verification,
     verify_on_chain,
     _assert_sufficient_balance,
+    _estimate_deployment_gas,
     _validate_chain,
 )
 
@@ -364,3 +369,118 @@ class TestGetVerificationRecordMocked:
         assert rec.verification_hash == h
         mock_load.assert_called_once_with()
         mock_w3.eth.account.assert_not_called()
+
+
+class TestEstimateDeploymentGas:
+    def test_applies_margin_and_passes_from_address(self):
+        contract = MagicMock()
+        from_address = "0x" + "ab" * 20
+        contract.constructor.return_value.estimate_gas.return_value = 200_000
+
+        gas = _estimate_deployment_gas(contract, from_address)
+
+        assert gas == math.ceil(200_000 * DEPLOYMENT_GAS_MARGIN)
+        assert gas != DEFAULT_GAS_LIMIT
+        contract.constructor.return_value.estimate_gas.assert_called_once_with(
+            {"from": from_address}
+        )
+
+    def test_zero_estimate_raises(self):
+        contract = MagicMock()
+        contract.constructor.return_value.estimate_gas.return_value = 0
+        with pytest.raises(BlockchainError, match="invalid gas estimate"):
+            _estimate_deployment_gas(contract, "0xabc")
+
+    def test_negative_estimate_raises(self):
+        contract = MagicMock()
+        contract.constructor.return_value.estimate_gas.return_value = -1
+        with pytest.raises(BlockchainError, match="invalid gas estimate"):
+            _estimate_deployment_gas(contract, "0xabc")
+
+    def test_non_integer_estimate_raises(self):
+        contract = MagicMock()
+        contract.constructor.return_value.estimate_gas.return_value = "lots"
+        with pytest.raises(BlockchainError, match="invalid gas estimate"):
+            _estimate_deployment_gas(contract, "0xabc")
+
+    def test_estimate_over_cap_raises(self):
+        contract = MagicMock()
+        contract.constructor.return_value.estimate_gas.return_value = MAX_DEPLOYMENT_GAS_LIMIT
+        with pytest.raises(BlockchainError, match="exceeds maximum"):
+            _estimate_deployment_gas(contract, "0xabc")
+
+    def test_estimation_failure_has_clear_message(self):
+        contract = MagicMock()
+        contract.constructor.return_value.estimate_gas.side_effect = RuntimeError("boom")
+        with pytest.raises(BlockchainError, match="Unable to estimate deployment gas"):
+            _estimate_deployment_gas(contract, "0xabc")
+
+
+class TestDeployContractGasEstimation:
+    @staticmethod
+    def _build_mocks(estimate):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        mock_w3.eth.get_balance.return_value = 10**18
+
+        contract = MagicMock()
+        constructor = MagicMock()
+        constructor.estimate_gas.return_value = estimate
+        built: dict = {}
+
+        def build_transaction(config):
+            built.update(config)
+            return dict(config)
+
+        constructor.build_transaction.side_effect = build_transaction
+        contract.constructor.return_value = constructor
+        mock_w3.eth.contract.return_value = contract
+
+        mock_w3.eth.send_raw_transaction.return_value = Web3.keccak(b"deploy-tx")
+        mock_w3.eth.wait_for_transaction_receipt.return_value = MagicMock(
+            status=1,
+            contractAddress="0x" + "cd" * 20,
+        )
+        mock_w3.eth.get_code.return_value = b"\x00\x01"
+
+        mock_web3 = MagicMock()
+        mock_web3.to_checksum_address = Web3.to_checksum_address
+        mock_web3.HTTPProvider.return_value = MagicMock()
+        mock_web3.return_value = mock_w3
+        return mock_web3, built
+
+    def test_deployment_gas_comes_from_estimate_not_hardcoded(self):
+        mock_web3, built = self._build_mocks(200_000)
+
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3", mock_web3):
+                record = deploy_contract()
+
+        assert built["gas"] == math.ceil(200_000 * DEPLOYMENT_GAS_MARGIN)
+        assert built["gas"] != DEFAULT_GAS_LIMIT
+        assert built["chainId"] == SEPOLIA_CHAIN_ID
+        assert built["gasPrice"] is not None
+        assert record.contract_address == "0x" + "cd" * 20
+        assert record.transaction_hash == Web3.keccak(b"deploy-tx").hex()
+        assert record.chain_id == SEPOLIA_CHAIN_ID
+
+    def test_reverted_receipt_fails_deployment(self):
+        mock_web3, _ = self._build_mocks(200_000)
+        mock_web3.return_value.eth.wait_for_transaction_receipt.return_value.status = 0
+
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3", mock_web3):
+                with pytest.raises(BlockchainError, match="Deployment failed"):
+                    deploy_contract()
+
+    def test_deployed_bytecode_must_exist(self):
+        mock_web3, _ = self._build_mocks(200_000)
+        mock_web3.return_value.eth.get_code.return_value = b""
+
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3", mock_web3):
+                with pytest.raises(BlockchainError, match="No code found at deployed address"):
+                    deploy_contract()

@@ -1,0 +1,956 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Face ID Verification</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --surface: #121a26;
+    --surface-2: #16202f;
+    --border: #233147;
+    --border-soft: #1c2838;
+    --text: #e6edf3;
+    --muted: #93a1b3;
+    --accent: #4f8cff;
+    --accent-soft: rgba(79, 140, 255, 0.14);
+    --ok: #2ea043;
+    --ok-soft: rgba(46, 160, 67, 0.14);
+    --warn: #d29922;
+    --warn-soft: rgba(210, 153, 34, 0.14);
+    --danger: #f85149;
+    --danger-soft: rgba(248, 81, 73, 0.14);
+    --neutral-soft: rgba(147, 161, 179, 0.12);
+    --radius: 10px;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+  }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 32px 20px 48px;
+  }
+
+  .shell {
+    width: 100%;
+    max-width: 980px;
+    margin: 0 auto;
+    flex: 1;
+  }
+
+  header.site {
+    margin-bottom: 28px;
+  }
+
+  header.site h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text);
+  }
+
+  header.site h1 .accent { color: var(--accent); }
+
+  header.site p {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 14px;
+    max-width: 72ch;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    margin-bottom: 18px;
+  }
+
+  .card h2 {
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 30px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+    background: var(--surface-2);
+  }
+
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .dropzone .dz-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+
+  .dropzone .dz-sub {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 0;
+  }
+
+  .dropzone.has-file { border-style: solid; }
+
+  .preview-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  .preview-thumb {
+    width: 88px;
+    height: 88px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #000;
+    flex: 0 0 auto;
+  }
+
+  .preview-meta {
+    font-size: 13px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .preview-meta .name { color: var(--text); font-weight: 500; word-break: break-all; }
+
+  .actions { margin-top: 18px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+  .btn {
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 22px;
+    cursor: pointer;
+    transition: filter .12s ease, background .12s ease, opacity .12s ease;
+  }
+
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:not(:disabled):hover { filter: brightness(1.1); }
+
+  .btn-copy {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+
+  .btn-copy:hover { color: var(--text); border-color: var(--accent); }
+
+  .err-msg {
+    display: none;
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--danger-soft);
+    border: 1px solid var(--danger);
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  .err-msg.visible { display: block; }
+
+  details.advanced {
+    margin-top: 16px;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+  }
+
+  details.advanced summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--muted);
+    user-select: none;
+  }
+
+  details.advanced summary:hover { color: var(--text); }
+
+  details.advanced .adv-body { margin-top: 12px; }
+
+  .field { margin-bottom: 12px; }
+
+  .field label {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 6px;
+    color: var(--muted);
+  }
+
+  .field input[type="checkbox"] { margin-right: 8px; }
+
+  .field input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 9px 12px;
+    border-radius: 8px;
+  }
+
+  .field input[type="text"]:focus { outline: none; border-color: var(--accent); }
+
+  .field .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Processing */
+  #processing { text-align: center; padding: 40px 22px; }
+
+  .spinner {
+    width: 34px;
+    height: 34px;
+    margin: 0 auto 16px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #processing .proc-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+
+  #processing .proc-sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+
+  #processing ol.stages {
+    display: inline-block;
+    text-align: left;
+    margin: 0;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: 13px;
+    max-width: 60ch;
+  }
+
+  /* Status banner */
+  .banner {
+    display: none;
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 18px;
+    border: 1px solid transparent;
+  }
+
+  .banner.visible { display: block; }
+  .banner.ok    { background: var(--ok-soft); border-color: var(--ok); }
+  .banner.warn  { background: var(--warn-soft); border-color: var(--warn); }
+  .banner.danger{ background: var(--danger-soft); border-color: var(--danger); }
+  .banner.neutral { background: var(--neutral-soft); border-color: var(--border); }
+
+  .banner .b-title { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
+  .banner .b-detail { font-size: 13px; margin: 0; color: var(--muted); }
+
+  /* Result grids */
+  .kv {
+    display: grid;
+    grid-template-columns: minmax(150px, 30%) 1fr;
+    gap: 8px 16px;
+    font-size: 13px;
+  }
+
+  .kv .k { color: var(--muted); }
+
+  .kv .v { font-family: var(--mono); font-size: 12.5px; word-break: break-all; min-width: 0; }
+
+  .kv .v.long { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .badge-ok { background: var(--ok-soft); color: var(--ok); }
+  .badge-warn { background: var(--warn-soft); color: var(--warn); }
+  .badge-danger { background: var(--danger-soft); color: var(--danger); }
+  .badge-neutral { background: var(--neutral-soft); color: var(--muted); }
+
+  .note {
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    border: 1px solid var(--border-soft);
+    background: var(--surface-2);
+  }
+
+  .note.danger { border-color: var(--danger); background: var(--danger-soft); }
+  .note.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .note.ok { border-color: var(--ok); background: var(--ok-soft); }
+  .note.muted-only { background: transparent; color: var(--muted); }
+
+  .result-item { margin-bottom: 12px; }
+  .result-item:last-child { margin-bottom: 0; }
+
+  .ri-label { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+
+  .ri-url {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    word-break: break-all;
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .ri-url:hover { text-decoration: underline; }
+
+  .ri-body { margin: 0; font-size: 13px; color: var(--text); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+  .chip {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .chip .pct { color: var(--muted); }
+
+  .hash-hero {
+    font-family: var(--mono);
+    font-size: 15px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    word-break: break-all;
+    user-select: all;
+  }
+
+  .placeholder { color: var(--muted); font-size: 13px; margin: 0; }
+
+  .count-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+
+  .count-pill {
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+
+  .count-pill b { color: var(--text); font-family: var(--mono); }
+
+  footer.site {
+    margin-top: 28px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .hidden { display: none !important; }
+
+  a { color: var(--accent); }
+
+  [role="status"] { outline: none; }
+
+  @media (max-width: 620px) {
+    body { padding: 20px 14px 32px; }
+    .kv { grid-template-columns: 1fr; gap: 2px 0; }
+    .preview-row { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="site">
+    <h1>FACE ID <span class="accent">VERIFICATION</span></h1>
+    <p>Verify an image through face representation, genuine reverse-image discovery, metadata extraction, and optional blockchain anchoring.</p>
+  </header>
+
+  <!-- Upload -->
+  <section id="upload-card" class="card" aria-labelledby="upload-heading">
+    <h2 id="upload-heading">Image</h2>
+
+    <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Upload an image. Drag and drop, or press Enter to browse.">
+      <p class="dz-title">Drop an image here or click to browse</p>
+      <p class="dz-sub">Supported formats: JPG, PNG, WebP &middot; up to 10 MB</p>
+      <input id="file-input" type="file" accept="image/jpeg,image/png,image/webp" class="hidden">
+    </div>
+
+    <div id="preview-row" class="preview-row hidden">
+      <img id="preview-thumb" class="preview-thumb" alt="Selected image preview">
+      <div class="preview-meta">
+        <div class="name" id="preview-name"></div>
+        <div id="preview-size"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="verify-btn" class="btn btn-primary" disabled>Verify Image</button>
+    </div>
+
+    <p id="upload-error" class="err-msg" role="alert"></p>
+
+    <details class="advanced">
+      <summary>Blockchain options</summary>
+      <div class="adv-body">
+        <div class="field">
+          <label><input id="enable-blockchain" type="checkbox"> Record verification on-chain (Sepolia)</label>
+          <p class="hint">Requires SEPOLIA_RPC_URL and SEPOLIA_PRIVATE_KEY on the server, plus a deployed VerificationRegistry contract address.</p>
+        </div>
+        <div class="field">
+          <label for="contract-address">Contract address</label>
+          <input id="contract-address" type="text" placeholder="0x..." spellcheck="false" autocomplete="off">
+          <p class="hint">Checksummed address of the deployed VerificationRegistry contract.</p>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- Processing -->
+  <section id="processing" class="card hidden" aria-live="polite" aria-busy="true">
+    <div class="spinner"></div>
+    <p class="proc-title">Verification in progress</p>
+    <p class="proc-sub">This may take up to a minute.</p>
+    <ol class="stages">
+      <li>Face detection &amp; representation</li>
+      <li>Genuine reverse image search</li>
+      <li>Post metadata extraction</li>
+      <li>Blockchain recording (if enabled)</li>
+    </ol>
+  </section>
+
+  <!-- Result status -->
+  <section id="status-banner" class="banner" role="status" aria-live="polite">
+    <p class="b-title" id="status-title"></p>
+    <p class="b-detail" id="status-detail"></p>
+  </section>
+
+  <!-- Results -->
+  <div id="results" class="hidden">
+
+    <section id="face-card" class="card" aria-labelledby="face-heading">
+      <h2 id="face-heading">Face Detection</h2>
+      <div id="face-body"></div>
+    </section>
+
+    <section id="search-card" class="card" aria-labelledby="search-heading">
+      <h2 id="search-heading">Reverse Image Search</h2>
+      <div id="search-body"></div>
+    </section>
+
+    <section id="meta-card" class="card" aria-labelledby="meta-heading">
+      <h2 id="meta-heading">Metadata</h2>
+      <div id="meta-body"></div>
+    </section>
+
+    <section id="hash-card" class="card" aria-labelledby="hash-heading">
+      <h2 id="hash-heading">Verification Hash</h2>
+      <div id="hash-body"></div>
+    </section>
+
+    <section id="chain-card" class="card" aria-labelledby="chain-heading">
+      <h2 id="chain-heading">Blockchain</h2>
+      <div id="chain-body"></div>
+    </section>
+
+  </div>
+
+  <!-- API-level error -->
+  <section id="error-card" class="card hidden" role="alert" aria-live="assertive">
+    <h2>Request failed</h2>
+    <p id="error-text" class="placeholder"></p>
+    <p class="hint" style="color:var(--muted);font-size:12px;margin-top:8px">This usually means the server lacks external-service credentials. Check the server logs for details.</p>
+  </section>
+
+  <footer class="site">
+    <p>Face ID Verification &middot; Reverse image search via Google Cloud Vision &middot; On-chain anchoring on Sepolia testnet (chain ID 11155111)</p>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var MAX_UPLOAD = 10 * 1024 * 1024;
+  var SUPPORTED_EXT = ["jpg", "jpeg", "png", "webp"];
+
+  var dropzone = document.getElementById("dropzone");
+  var fileInput = document.getElementById("file-input");
+  var previewRow = document.getElementById("preview-row");
+  var previewThumb = document.getElementById("preview-thumb");
+  var previewName = document.getElementById("preview-name");
+  var previewSize = document.getElementById("preview-size");
+  var verifyBtn = document.getElementById("verify-btn");
+  var uploadError = document.getElementById("upload-error");
+  var enableBlockchain = document.getElementById("enable-blockchain");
+  var contractAddress = document.getElementById("contract-address");
+  var processing = document.getElementById("processing");
+  var statusBanner = document.getElementById("status-banner");
+  var statusTitle = document.getElementById("status-title");
+  var statusDetail = document.getElementById("status-detail");
+  var results = document.getElementById("results");
+  var errorCard = document.getElementById("error-card");
+  var errorText = document.getElementById("error-text");
+
+  var selectedFile = null;
+  var objectUrl = null;
+
+  function esc(v) {
+    if (v === null || v === undefined) return "";
+    return String(v).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function humanSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function showError(msg) {
+    uploadError.textContent = msg;
+    uploadError.classList.add("visible");
+  }
+
+  function clearError() {
+    uploadError.textContent = "";
+    uploadError.classList.remove("visible");
+  }
+
+  function acceptFile(file) {
+    if (!file) return;
+    clearError();
+    var name = file.name || "image";
+    var ext = name.split(".").pop().toLowerCase();
+    if (SUPPORTED_EXT.indexOf(ext) === -1) {
+      showError("Unsupported file type. Supported formats: JPG, PNG, WebP.");
+      return;
+    }
+    if (file.size > MAX_UPLOAD) {
+      showError("File exceeds the 10 MB upload limit.");
+      return;
+    }
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+    objectUrl = URL.createObjectURL(file);
+    previewThumb.src = objectUrl;
+    previewName.textContent = name;
+    previewSize.textContent = file.type + " \u00b7 " + humanSize(file.size);
+    previewRow.classList.remove("hidden");
+    dropzone.classList.add("has-file");
+    selectedFile = file;
+    verifyBtn.disabled = false;
+  }
+
+  dropzone.addEventListener("click", function () { fileInput.click(); });
+  dropzone.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener("change", function () { acceptFile(fileInput.files[0]); });
+
+  ["dragenter", "dragover"].forEach(function (ev) {
+    dropzone.addEventListener(ev, function (e) {
+      e.preventDefault(); e.stopPropagation();
+      dropzone.classList.add("dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    dropzone.addEventListener(ev, function (e) {
+      e.preventDefault(); e.stopPropagation();
+      dropzone.classList.remove("dragover");
+    });
+  });
+  dropzone.addEventListener("drop", function (e) { acceptFile(e.dataTransfer.files[0]); });
+
+  verifyBtn.addEventListener("click", startVerify);
+
+  function successTitle(item, text) {
+    return '<div class="note ok"><p class="ri-body"><b>' + text + '</b></p></div>';
+  }
+
+  function banner(kind, title, detail) {
+    statusBanner.className = "banner visible " + kind;
+    statusTitle.textContent = title;
+    statusDetail.textContent = detail || "";
+  }
+
+  function copyBtn(text) {
+    return '<button type="button" class="btn-copy" data-copy="' + esc(text) + '">Copy</button>';
+  }
+
+  function renderFace(report) {
+    var body = document.getElementById("face-body");
+    var html = "";
+    if (report.status === "no_face_detected") {
+      html = '<div class="note warn"><p class="ri-body"><b>No face detected.</b> The image does not contain a detectable face, so the pipeline stopped before reverse search.</p></div>';
+    } else if (report.status === "multiple_faces") {
+      html = '<div class="note warn"><p class="ri-body"><b>Multiple faces detected.</b> Exactly one face is required; the pipeline stopped before reverse search.</p></div>';
+      (report.errors || []).forEach(function (e) {
+        html += '<p class="placeholder">' + esc(e) + '</p>';
+      });
+    } else if (report.face_detection_failed || report.status === "face_detection_failed") {
+      html = '<div class="note danger"><p class="ri-body"><b>Face detection failed.</b> ' + esc((report.errors || [])[0] || "The model could not be initialized.") + '</p></div>';
+    } else if (report.faces && report.faces.length === 1) {
+      var f = report.faces[0];
+      html = successTitle(null, "Exactly one face detected.");
+      html += '<div class="kv" style="margin-top:10px">';
+      html += '<div class="k">Bounding box</div><div class="v">[x0 y0 x1 y1] ' + esc(f.bounding_box.join(", ")) + '</div>';
+      html += '<div class="k">Detection confidence</div><div class="v">' + esc((f.detection_confidence * 100).toFixed(1)) + '%</div>';
+      html += '<div class="k">Embedding hash</div><div class="v long"><span>' + esc(f.embedding_hash) + '</span>' + copyBtn(f.embedding_hash) + '</div>';
+      html += '</div>';
+    } else {
+      html = '<p class="placeholder">No face data available.</p>';
+    }
+    body.innerHTML = html;
+  }
+
+  function renderSearch(report) {
+    var body = document.getElementById("search-body");
+    if (report.reverse_search_error) {
+      body.innerHTML =
+        '<div class="note danger"><p class="ri-body"><b>Reverse image search failed.</b> The external provider could not be reached or authenticated.</p></div>' +
+        '<p class="placeholder" style="margin-top:10px">' + esc(report.reverse_search_error) + '</p>' +
+        '<p class="placeholder" style="margin-top:8px">No public pages were checked. Verify Google Cloud Vision credentials and billing on the server.</p>';
+      return;
+    }
+    if (!report.reverse_search) {
+      body.innerHTML = '<p class="placeholder">Reverse image search produced no data.</p>';
+      return;
+    }
+    var rs = report.reverse_search;
+    var pages = rs.pages_with_matching_images || [];
+    var full = rs.full_matching_images || [];
+    var partial = rs.partial_matching_images || [];
+    var similar = rs.visually_similar_images || [];
+    var entities = rs.web_entities || [];
+    var labels = rs.best_guess_labels || [];
+    var html = "";
+
+    html += '<div class="count-row">' +
+      '<span class="count-pill">Pages <b>' + pages.length + '</b></span>' +
+      '<span class="count-pill">Full matches <b>' + full.length + '</b></span>' +
+      '<span class="count-pill">Partial matches <b>' + partial.length + '</b></span>' +
+      '<span class="count-pill">Visually similar <b>' + similar.length + '</b></span>' +
+      '<span class="count-pill">Entities <b>' + entities.length + '</b></span>' +
+      '</div>';
+
+    if (pages.length === 0 && full.length === 0 && partial.length === 0 && similar.length === 0 && entities.length === 0 && labels.length === 0) {
+      html += '<div class="note muted-only"><p class="ri-body">No matching public pages, images, or entities were found for this image. This is a valid result — not every image has public matches.</p></div>';
+    }
+
+    if (pages.length) {
+      html += '<p class="ri-label">Matching pages (' + pages.length + ')</p>';
+      pages.forEach(function (p) {
+        html += '<div class="result-item"><div class="ri-body"><b>' + esc(p.page_title || "(untitled)") + '</b></div>';
+        html += '<a class="ri-url" href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer">' + esc(p.url) + '</a>';
+        var imgs = (p.full_matching_images || []).concat(p.partial_matching_images || []);
+        if (imgs.length) {
+          html += '<div class="chips">';
+          imgs.forEach(function (img) {
+            html += '<span class="chip"><a class="ri-url" href="' + esc(img.url) + '" target="_blank" rel="noopener noreferrer">' + esc(img.url) + '</a></span>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+    }
+
+    if (entities.length) {
+      html += '<p class="ri-label">Web entities (' + entities.length + ')</p><div class="chips">';
+      entities.forEach(function (en) {
+        html += '<span class="chip">' + esc(en.description) +
+                ' <span class="pct">' + (en.score ? Math.round(en.score * 100) + "%" : "") + '</span></span>';
+      });
+      html += '</div>';
+    }
+
+    if (labels.length) {
+      html += '<p class="ri-label">Best guess labels</p><div class="chips">';
+      labels.forEach(function (l) {
+        html += '<span class="chip">' + esc(l) + '</span>';
+      });
+      html += '</div>';
+    }
+
+    body.innerHTML = html || "<p class=\"placeholder\">No data.</p>";
+  }
+
+  function renderMetadata(report) {
+    var body = document.getElementById("meta-body");
+    var items = report.metadata || [];
+    var errors = report.metadata_errors || [];
+
+    if (items.length === 0) {
+      if (errors.length) {
+        var html = '<div class="note danger"><p class="ri-body"><b>Metadata extraction failed.</b></p></div>';
+        errors.forEach(function (e) { html += '<p class="placeholder">' + esc(e) + '</p>'; });
+        body.innerHTML = html;
+      } else {
+        body.innerHTML = '<p class="placeholder">No pages were found, so no metadata was requested.</p>';
+      }
+      return;
+    }
+
+    var html = "";
+    items.forEach(function (m) {
+      if (m.error) {
+        html += '<div class="note danger"><div class="ri-label">' + esc(m.source_url) + '</div>' +
+                '<p class="ri-body">Metadata could not be retrieved for this page.</p></div>' +
+                '<p class="placeholder">' + esc(m.error) + '</p>';
+        return;
+      }
+      html += '<div class="result-item"><div class="kv">';
+      html += '<div class="k">Source</div><div class="v"><a class="ri-url" href="' + esc(m.source_url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.source_url) + '</a></div>';
+      if (m.canonical_url) {
+        html += '<div class="k">Canonical</div><div class="v"><a class="ri-url" href="' + esc(m.canonical_url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.canonical_url) + '</a></div>';
+      }
+      if (m.platform) {
+        html += '<div class="k">Platform</div><div class="v">' + esc(m.platform) + '</div>';
+      }
+      if (m.title) {
+        html += '<div class="k">Title</div><div class="v" style="font-family:var(--sans);font-size:13px">' + esc(m.title) + '</div>';
+      }
+      if (m.description) {
+        html += '<div class="k">Description</div><div class="v" style="font-family:var(--sans);font-size:13px">' + esc(m.description) + '</div>';
+      }
+      if (m.published_at) {
+        html += '<div class="k">Published</div><div class="v">' + esc(m.published_at) + '</div>';
+      }
+      if (m.modified_at) {
+        html += '<div class="k">Modified</div><div class="v">' + esc(m.modified_at) + '</div>';
+      }
+      if (m.content_type) {
+        html += '<div class="k">Content type</div><div class="v">' + esc(m.content_type) + '</div>';
+      }
+      html += '</div></div>';
+    });
+
+    if (errors.length) {
+      html += '<p class="ri-label" style="margin-top:14px">Extraction errors (' + errors.length + ')</p>';
+      errors.forEach(function (e) { html += '<p class="placeholder">' + esc(e) + '</p>'; });
+    }
+
+    body.innerHTML = html;
+  }
+
+  function renderHash(report) {
+    var body = document.getElementById("hash-body");
+    var h = report.verification_hash;
+    if (!h) {
+      body.innerHTML = '<p class="placeholder">No verification hash was produced (the pipeline did not complete).</p>';
+      return;
+    }
+    body.innerHTML =
+      '<div class="hash-hero">' + esc(h) + '</div>' +
+      '<div style="margin-top:10px">' + copyBtn(h) + '</div>' +
+      '<p class="placeholder" style="margin-top:12px">Deterministic hash of the face representation, reverse-search results, and metadata. The same image bytes always produce the same path-independent hash.</p>';
+  }
+
+  function badge(kind, text) {
+    return '<span class="badge badge-' + kind + '">' + text + '</span>';
+  }
+
+  function renderBlockchain(data) {
+    var body = document.getElementById("chain-body");
+    var report = data.report;
+    var req = data.request || {};
+    var chainError = report.blockchain_error;
+    var bc = report.blockchain;
+
+    var html = '<div class="kv">';
+    html += '<div class="k">Network</div><div class="v">Sepolia (chain ID ' + esc(req.chain_id != null ? req.chain_id : 11155111) + ')</div>';
+
+    if (req.contract_address) {
+      html += '<div class="k">Contract</div><div class="v long"><span>' + esc(req.contract_address) + '</span>' + copyBtn(req.contract_address) + '</div>';
+    }
+
+    if (!req.blockchain_enabled && !bc && !chainError) {
+      html += '</div>';
+      html += '<div class="note muted-only" style="margin-top:12px"><p class="ri-body"><b>Blockchain disabled.</b> This verification was not recorded on-chain.</p></div>';
+    } else if (chainError) {
+      html += '</div>';
+      var isConfig = /environment variable is not set/.test(chainError);
+      html += '<div class="note ' + (isConfig ? "warn" : "danger") + '" style="margin-top:12px">' +
+              '<p class="ri-body"><b>' + (isConfig ? "Blockchain configuration required." : "Blockchain recording failed.") + '</b></p></div>' +
+              '<p class="placeholder">' + esc(chainError) + '</p>';
+    } else if (bc) {
+      html += '<div class="k">Status</div><div class="v">' +
+              (bc.duplicate ? badge("warn", "Already recorded") :
+               (bc.confirmed ? badge("ok", "Confirmed") : badge("danger", "Not confirmed"))) +
+              '</div>';
+      html += '<div class="k">Recorded hash</div><div class="v long"><span>' + esc(bc.verification_hash) + '</span>' + copyBtn(bc.verification_hash) + '</div>';
+      if (bc.transaction_hash) {
+        html += '<div class="k">Transaction hash</div><div class="v long"><span>' + esc(bc.transaction_hash) + '</span>' + copyBtn(bc.transaction_hash) + '</div>';
+      }
+      if (bc.block_number != null) {
+        html += '<div class="k">Block number</div><div class="v">' + esc(bc.block_number) + '</div>';
+      }
+      html += '</div>';
+      if (bc.explorer_url && bc.confirmed) {
+        html += '<div style="margin-top:12px"><a class="ri-url" href="' + esc(bc.explorer_url) + '" target="_blank" rel="noopener noreferrer">View transaction on Sepolia Etherscan &rarr;</a></div>';
+      }
+    } else {
+      html += '</div>';
+      html += '<div class="note muted-only" style="margin-top:12px"><p class="ri-body"><b>No on-chain record.</b></p></div>';
+    }
+
+    body.innerHTML = html;
+  }
+
+  function renderResults(data) {
+    var report = data.report;
+
+    var bannerKind = "ok";
+    var title = "Verification complete";
+    var detail = "The pipeline finished. Review each section below.";
+
+    var status = report.status;
+    if (status === "no_face_detected") {
+      bannerKind = "warn"; title = "No face detected";
+      detail = "The image does not contain a detectable face, so verification stopped before reverse search.";
+    } else if (status === "multiple_faces") {
+      bannerKind = "warn"; title = "Multiple faces detected";
+      detail = "Exactly one face is required for verification; the pipeline stopped before reverse search.";
+    } else if (status === "face_detection_failed") {
+      bannerKind = "danger"; title = "Face detection failed";
+      detail = (report.errors || [])[0] || "The face detection model could not be initialized.";
+    } else if (status === "reverse_search_failed") {
+      bannerKind = "danger"; title = "Reverse image search failed";
+      detail = (report.reverse_search_error || "The external provider could not be reached.") + " Check Google Cloud Vision credentials/billing on the server.";
+    } else if (status === "metadata_failed") {
+      bannerKind = "danger"; title = "Metadata extraction failed";
+      detail = "None of the discovered pages could be accessed.";
+    } else if (status !== "success") {
+      bannerKind = "neutral"; title = "Verification incomplete";
+      detail = (report.errors || []).join(" ") || "Unknown pipeline status.";
+    }
+
+    banner(bannerKind, title, detail);
+    renderFace(report);
+    renderSearch(report);
+    renderMetadata(report);
+    renderHash(report);
+    renderBlockchain(data);
+    results.classList.remove("hidden");
+  }
+
+  function showProcessing(on) {
+    if (on) {
+      processing.classList.remove("hidden");
+      results.classList.add("hidden");
+      statusBanner.classList.remove("visible");
+      errorCard.classList.add("hidden");
+    } else {
+      processing.classList.add("hidden");
+    }
+  }
+
+  async function startVerify() {
+    if (!selectedFile) { showError("Select an image before verifying."); return; }
+    clearError();
+    verifyBtn.disabled = true;
+    showProcessing(true);
+
+    var form = new FormData();
+    form.append("image", selectedFile);
+    form.append("enable_blockchain", enableBlockchain.checked ? "true" : "false");
+    if (enableBlockchain.checked && contractAddress.value.trim()) {
+      form.append("contract_address", contractAddress.value.trim());
+    }
+
+    try {
+      var res = await fetch("/api/verify", { method: "POST", body: form });
+      var data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      if (res.ok && data) {
+        renderResults(data);
+      } else {
+        errorText.textContent = (data && data.detail) ? data.detail
+          : ("The server returned an error (HTTP " + res.status + ").");
+        errorCard.classList.remove("hidden");
+      }
+    } catch (e) {
+      errorText.textContent = "Could not reach the server. Is the web interface running?";
+      errorCard.classList.remove("hidden");
+    } finally {
+      showProcessing(false);
+      verifyBtn.disabled = selectedFile ? false : true;
+    }
+  }
+
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest(".btn-copy");
+    if (!btn) return;
+    var text = btn.getAttribute("data-copy") || "";
+    navigator.clipboard && navigator.clipboard.writeText
+      ? navigator.clipboard.writeText(text).then(function () { flash(btn); }, function () { fallbackCopy(text, btn); })
+      : fallbackCopy(text, btn);
+  });
+
+  function fallbackCopy(text, btn) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+    ta.remove();
+    flash(btn);
+  }
+
+  function flash(btn) {
+    var prev = btn.textContent;
+    btn.textContent = "Copied";
+    setTimeout(function () { btn.textContent = prev; }, 1400);
+  }
+
+})();
+</script>
+</body>
+</html>

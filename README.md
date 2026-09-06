@@ -66,6 +66,21 @@ face-id-verification --help
 
 Exit codes: `0` success, `1` usage, `2` face detection, `3` reverse search, `4` metadata, `5` blockchain configuration.
 
+## Web interface
+
+A thin browser frontend that drives the exact same pipeline (no duplicated logic):
+
+```bash
+python -m face_id_verification.web
+```
+
+Open `http://127.0.0.1:8000`, drop an image (JPG / PNG / WebP, up to 10 MB), and click **Verify Image**. The interface shows the real pipeline state for each stage, the verification hash (copyable), and the on-chain record when blockchain anchoring is enabled.
+
+- Host/port: set `FACE_ID_WEB_HOST` / `FACE_ID_WEB_PORT` (defaults `127.0.0.1:8000`).
+- API: `POST /api/verify` (multipart: `image`, `enable_blockchain`, `contract_address`, `timeout`). Returns `{"request": {...}, "report": {...}}`.
+- Blockchain options (contract address, enable toggle) are at the bottom of the page. The same env vars as the CLI are used for GCV and Sepolia.
+- Uploads are validated (type + 10 MB limit), processed from a temporary file, and cleaned up automatically. Filesystem paths are never returned to the browser.
+
 ## Pipeline flow
 
 ```

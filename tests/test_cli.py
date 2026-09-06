@@ -85,6 +85,11 @@ class TestBasicInvocation:
         with pytest.raises(SystemExit):
             build_parser().parse_args([])
 
+    def test_version_exits_zero(self):
+        with pytest.raises(SystemExit) as excinfo:
+            main(["--version"])
+        assert excinfo.value.code == 0
+
     def test_nonexistent_image(self, tmp_path):
         fake = str(tmp_path / "nonexistent.jpg")
         exit_code = main(["--image", fake])

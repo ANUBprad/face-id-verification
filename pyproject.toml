@@ -18,10 +18,13 @@ dependencies = [
     "requests>=2.31.0",
     "web3>=8.0.0",
     "py-solc-x>=2.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "httpx>=0.27.0"]
 
 [project.scripts]
 face-id-verification = "face_id_verification.cli:main"
@@ -30,7 +33,7 @@ face-id-verification = "face_id_verification.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-face_id_verification = ["contracts/*.sol"]
+face_id_verification = ["contracts/*.sol", "web/static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

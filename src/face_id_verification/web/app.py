@@ -16,6 +16,7 @@ from web3 import Web3
 from face_id_verification.blockchain_recording import SEPOLIA_CHAIN_ID
 from face_id_verification.face_detection import FaceAnalyzer
 from face_id_verification.pipeline import VerificationPipeline, VerificationReport
+from face_id_verification.web.state import build_verification_state
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +216,12 @@ def create_app(
                 "timeout": timeout_s,
             },
             "report": _report_to_dict(report),
+            "verification": asdict(
+                build_verification_state(
+                    blockchain_enabled=blockchain_enabled,
+                    report=report,
+                )
+            ),
         }
 
     return app

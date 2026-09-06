@@ -82,12 +82,20 @@
   }
 
   .card h2 {
-    margin: 0 0 12px;
+    margin: 0;
     font-size: 13px;
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--muted);
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
   }
 
   .dropzone {
@@ -265,12 +273,12 @@
     max-width: 60ch;
   }
 
-  /* Status banner */
+  /* Overall summary */
   .banner {
     display: none;
     border-radius: var(--radius);
     padding: 16px 20px;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
     border: 1px solid transparent;
   }
 
@@ -280,8 +288,53 @@
   .banner.danger{ background: var(--danger-soft); border-color: var(--danger); }
   .banner.neutral { background: var(--neutral-soft); border-color: var(--border); }
 
-  .banner .b-title { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
+  .banner .b-title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
   .banner .b-detail { font-size: 13px; margin: 0; color: var(--muted); }
+
+  .stage-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .stage-chip {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  .stage-chip .sc-name {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .stage-chip .sc-state {
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 3px;
+  }
+
+  .stage-chip.st-complete { border-left-color: var(--ok); }
+  .stage-chip.st-complete .sc-state { color: var(--ok); }
+  .stage-chip.st-failed { border-left-color: var(--danger); }
+  .stage-chip.st-failed .sc-state { color: var(--danger); }
+  .stage-chip.st-not_run, .stage-chip.st-disabled { border-left-color: var(--muted); }
+  .stage-chip.st-not_run .sc-state, .stage-chip.st-disabled .sc-state { color: var(--muted); }
+
+  .issues-list {
+    margin: 2px 0 0;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .issues-list li { margin-bottom: 4px; }
 
   /* Result grids */
   .kv {
@@ -299,12 +352,13 @@
 
   .badge {
     display: inline-block;
-    padding: 2px 10px;
+    padding: 3px 12px;
     border-radius: 999px;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .badge-ok { background: var(--ok-soft); color: var(--ok); }
@@ -382,6 +436,9 @@
 
   .count-pill b { color: var(--text); font-family: var(--mono); }
 
+  .mt { margin-top: 10px; }
+  .mb { margin-bottom: 10px; }
+
   footer.site {
     margin-top: 28px;
     text-align: center;
@@ -399,6 +456,7 @@
     body { padding: 20px 14px 32px; }
     .kv { grid-template-columns: 1fr; gap: 2px 0; }
     .preview-row { flex-direction: column; align-items: flex-start; }
+    .stage-strip { grid-template-columns: repeat(2, 1fr); }
   }
 </style>
 </head>
@@ -463,37 +521,58 @@
     </ol>
   </section>
 
-  <!-- Result status -->
-  <section id="status-banner" class="banner" role="status" aria-live="polite">
-    <p class="b-title" id="status-title"></p>
-    <p class="b-detail" id="status-detail"></p>
-  </section>
-
   <!-- Results -->
   <div id="results" class="hidden">
 
+    <section id="summary-card" class="card" aria-labelledby="summary-heading">
+      <h2 id="summary-heading">Verification summary</h2>
+
+      <div id="status-banner" class="banner" role="status" aria-live="polite">
+        <p class="b-title" id="status-title"></p>
+        <p class="b-detail" id="status-detail"></p>
+      </div>
+
+      <div id="stage-strip" class="stage-strip"></div>
+      <div id="summary-issues" class="hidden"></div>
+    </section>
+
     <section id="face-card" class="card" aria-labelledby="face-heading">
-      <h2 id="face-heading">Face Detection</h2>
+      <div class="card-head">
+        <h2 id="face-heading">Face Detection</h2>
+        <span id="face-chip" class="badge badge-neutral">-</span>
+      </div>
       <div id="face-body"></div>
     </section>
 
     <section id="search-card" class="card" aria-labelledby="search-heading">
-      <h2 id="search-heading">Reverse Image Search</h2>
+      <div class="card-head">
+        <h2 id="search-heading">Reverse Image Search</h2>
+        <span id="search-chip" class="badge badge-neutral">-</span>
+      </div>
       <div id="search-body"></div>
     </section>
 
     <section id="meta-card" class="card" aria-labelledby="meta-heading">
-      <h2 id="meta-heading">Metadata</h2>
+      <div class="card-head">
+        <h2 id="meta-heading">Metadata</h2>
+        <span id="meta-chip" class="badge badge-neutral">-</span>
+      </div>
       <div id="meta-body"></div>
     </section>
 
     <section id="hash-card" class="card" aria-labelledby="hash-heading">
-      <h2 id="hash-heading">Verification Hash</h2>
+      <div class="card-head">
+        <h2 id="hash-heading">Verification Hash</h2>
+        <span id="hash-chip" class="badge badge-neutral">-</span>
+      </div>
       <div id="hash-body"></div>
     </section>
 
     <section id="chain-card" class="card" aria-labelledby="chain-heading">
-      <h2 id="chain-heading">Blockchain</h2>
+      <div class="card-head">
+        <h2 id="chain-heading">Blockchain</h2>
+        <span id="chain-chip" class="badge badge-neutral">-</span>
+      </div>
       <div id="chain-body"></div>
     </section>
 
@@ -518,6 +597,13 @@
 
   var MAX_UPLOAD = 10 * 1024 * 1024;
   var SUPPORTED_EXT = ["jpg", "jpeg", "png", "webp"];
+
+  var BADGE_BY_STATE = {
+    complete: "badge-ok",
+    failed: "badge-danger",
+    not_run: "badge-neutral",
+    disabled: "badge-neutral"
+  };
 
   var dropzone = document.getElementById("dropzone");
   var fileInput = document.getElementById("file-input");
@@ -609,10 +695,6 @@
 
   verifyBtn.addEventListener("click", startVerify);
 
-  function successTitle(item, text) {
-    return '<div class="note ok"><p class="ri-body"><b>' + text + '</b></p></div>';
-  }
-
   function banner(kind, title, detail) {
     statusBanner.className = "banner visible " + kind;
     statusTitle.textContent = title;
@@ -623,45 +705,91 @@
     return '<button type="button" class="btn-copy" data-copy="' + esc(text) + '">Copy</button>';
   }
 
-  function renderFace(report) {
-    var body = document.getElementById("face-body");
-    var html = "";
-    if (report.status === "no_face_detected") {
-      html = '<div class="note warn"><p class="ri-body"><b>No face detected.</b> The image does not contain a detectable face, so the pipeline stopped before reverse search.</p></div>';
-    } else if (report.status === "multiple_faces") {
-      html = '<div class="note warn"><p class="ri-body"><b>Multiple faces detected.</b> Exactly one face is required; the pipeline stopped before reverse search.</p></div>';
-      (report.errors || []).forEach(function (e) {
-        html += '<p class="placeholder">' + esc(e) + '</p>';
-      });
-    } else if (report.face_detection_failed || report.status === "face_detection_failed") {
-      html = '<div class="note danger"><p class="ri-body"><b>Face detection failed.</b> ' + esc((report.errors || [])[0] || "The model could not be initialized.") + '</p></div>';
-    } else if (report.faces && report.faces.length === 1) {
+  function badge(state, label) {
+    return '<span class="badge ' + BADGE_BY_STATE[state] + '">' + esc(label) + '</span>';
+  }
+
+  function setChip(id, state, label) {
+    var el = document.getElementById(id);
+    el.textContent = label;
+    el.className = "badge " + BADGE_BY_STATE[state];
+  }
+
+  function stageNoteHtml(stage) {
+    var cls = stage.state === "complete" ? " ok" : (stage.state === "failed" ? " danger" : "");
+    return '<div class="note' + cls + '"><p class="ri-body"><b>' + esc(stage.label) + '.</b> ' + esc(stage.detail) + '</p></div>';
+  }
+
+  function stageChipHtml(stage) {
+    return '<div class="stage-chip st-' + esc(stage.state) + '">' +
+           '<div class="sc-name">' + esc(stage.name) + '</div>' +
+           '<div class="sc-state">' + esc(stage.label) + '</div></div>';
+  }
+
+  function stagesByName(stages) {
+    var map = {};
+    (stages || []).forEach(function (s) { map[s.name] = s; });
+    return map;
+  }
+
+  function renderSummary(verification) {
+    var overall = verification.overall || {};
+    var issues = overall.issues || [];
+
+    var kind = overall.state === "failed" ? "danger" : (issues.length ? "warn" : "ok");
+    banner(kind, overall.label, overall.detail);
+
+    document.getElementById("stage-strip").innerHTML =
+      (verification.stages || []).map(stageChipHtml).join("");
+
+    var issuesEl = document.getElementById("summary-issues");
+    if (issues.length) {
+      issuesEl.innerHTML = '<ul class="issues-list">' +
+        issues.map(function (i) { return "<li>" + esc(i) + "</li>"; }).join("") +
+        '</ul>';
+      issuesEl.classList.remove("hidden");
+    } else {
+      issuesEl.innerHTML = "";
+      issuesEl.classList.add("hidden");
+    }
+  }
+
+  function renderFace(report, stage) {
+    setChip("face-chip", stage.state, stage.label);
+    var html = stageNoteHtml(stage);
+    if (stage.state === "complete" && report.faces && report.faces.length === 1) {
       var f = report.faces[0];
-      html = successTitle(null, "Exactly one face detected.");
-      html += '<div class="kv" style="margin-top:10px">';
+      html += '<div class="kv mt">';
       html += '<div class="k">Bounding box</div><div class="v">[x0 y0 x1 y1] ' + esc(f.bounding_box.join(", ")) + '</div>';
       html += '<div class="k">Detection confidence</div><div class="v">' + esc((f.detection_confidence * 100).toFixed(1)) + '%</div>';
       html += '<div class="k">Embedding hash</div><div class="v long"><span>' + esc(f.embedding_hash) + '</span>' + copyBtn(f.embedding_hash) + '</div>';
       html += '</div>';
     } else {
-      html = '<p class="placeholder">No face data available.</p>';
+      (report.errors || []).forEach(function (e) {
+        html += '<p class="placeholder mt">' + esc(e) + '</p>';
+      });
     }
-    body.innerHTML = html;
+    document.getElementById("face-body").innerHTML = html;
   }
 
-  function renderSearch(report) {
-    var body = document.getElementById("search-body");
-    if (report.reverse_search_error) {
-      body.innerHTML =
-        '<div class="note danger"><p class="ri-body"><b>Reverse image search failed.</b> The external provider could not be reached or authenticated.</p></div>' +
-        '<p class="placeholder" style="margin-top:10px">' + esc(report.reverse_search_error) + '</p>' +
-        '<p class="placeholder" style="margin-top:8px">No public pages were checked. Verify Google Cloud Vision credentials and billing on the server.</p>';
+  function renderSearch(report, stage) {
+    setChip("search-chip", stage.state, stage.label);
+    var html = stageNoteHtml(stage);
+
+    if (stage.state === "failed") {
+      html += '<p class="placeholder mt">No public pages were checked. Verify Google Cloud Vision credentials and billing on the server.</p>';
+      if (report.reverse_search_error) {
+        html += '<p class="placeholder mt">Server detail: ' + esc(report.reverse_search_error) + '</p>';
+      }
+      document.getElementById("search-body").innerHTML = html;
       return;
     }
-    if (!report.reverse_search) {
-      body.innerHTML = '<p class="placeholder">Reverse image search produced no data.</p>';
+
+    if (stage.state !== "complete" || !report.reverse_search) {
+      document.getElementById("search-body").innerHTML = html;
       return;
     }
+
     var rs = report.reverse_search;
     var pages = rs.pages_with_matching_images || [];
     var full = rs.full_matching_images || [];
@@ -669,9 +797,8 @@
     var similar = rs.visually_similar_images || [];
     var entities = rs.web_entities || [];
     var labels = rs.best_guess_labels || [];
-    var html = "";
 
-    html += '<div class="count-row">' +
+    html += '<div class="count-row mt">' +
       '<span class="count-pill">Pages <b>' + pages.length + '</b></span>' +
       '<span class="count-pill">Full matches <b>' + full.length + '</b></span>' +
       '<span class="count-pill">Partial matches <b>' + partial.length + '</b></span>' +
@@ -684,7 +811,7 @@
     }
 
     if (pages.length) {
-      html += '<p class="ri-label">Matching pages (' + pages.length + ')</p>';
+      html += '<p class="ri-label mb">Matching pages (' + pages.length + ')</p>';
       pages.forEach(function (p) {
         html += '<div class="result-item"><div class="ri-body"><b>' + esc(p.page_title || "(untitled)") + '</b></div>';
         html += '<a class="ri-url" href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer">' + esc(p.url) + '</a>';
@@ -701,7 +828,7 @@
     }
 
     if (entities.length) {
-      html += '<p class="ri-label">Web entities (' + entities.length + ')</p><div class="chips">';
+      html += '<p class="ri-label mb">Web entities (' + entities.length + ')</p><div class="chips">';
       entities.forEach(function (en) {
         html += '<span class="chip">' + esc(en.description) +
                 ' <span class="pct">' + (en.score ? Math.round(en.score * 100) + "%" : "") + '</span></span>';
@@ -710,38 +837,48 @@
     }
 
     if (labels.length) {
-      html += '<p class="ri-label">Best guess labels</p><div class="chips">';
+      html += '<p class="ri-label mb">Best guess labels</p><div class="chips">';
       labels.forEach(function (l) {
         html += '<span class="chip">' + esc(l) + '</span>';
       });
       html += '</div>';
     }
 
-    body.innerHTML = html || "<p class=\"placeholder\">No data.</p>";
+    document.getElementById("search-body").innerHTML = html || "<p class=\"placeholder\">No data.</p>";
   }
 
-  function renderMetadata(report) {
-    var body = document.getElementById("meta-body");
-    var items = report.metadata || [];
-    var errors = report.metadata_errors || [];
+  function renderMetadata(report, stage) {
+    setChip("meta-chip", stage.state, stage.label);
+    var html = stageNoteHtml(stage);
 
-    if (items.length === 0) {
-      if (errors.length) {
-        var html = '<div class="note danger"><p class="ri-body"><b>Metadata extraction failed.</b></p></div>';
-        errors.forEach(function (e) { html += '<p class="placeholder">' + esc(e) + '</p>'; });
-        body.innerHTML = html;
-      } else {
-        body.innerHTML = '<p class="placeholder">No pages were found, so no metadata was requested.</p>';
+    if (stage.state === "not_run") {
+      html += '<p class="placeholder mt">No metadata was requested, so there is nothing to display.</p>';
+      if ((report.metadata_errors || []).length) {
+        html += '<p class="placeholder mt">Server detail: ' + esc(report.metadata_errors[0]) + '</p>';
       }
+      document.getElementById("meta-body").innerHTML = html;
       return;
     }
 
-    var html = "";
+    if (stage.state === "failed") {
+      (report.metadata_errors || []).forEach(function (e) {
+        html += '<p class="placeholder mt">' + esc(e) + '</p>';
+      });
+      document.getElementById("meta-body").innerHTML = html;
+      return;
+    }
+
+    var items = report.metadata || [];
+    if (!items.length) {
+      document.getElementById("meta-body").innerHTML = html;
+      return;
+    }
+
     items.forEach(function (m) {
       if (m.error) {
-        html += '<div class="note danger"><div class="ri-label">' + esc(m.source_url) + '</div>' +
+        html += '<div class="note warn"><div class="ri-label">' + esc(m.source_url) + '</div>' +
                 '<p class="ri-body">Metadata could not be retrieved for this page.</p></div>' +
-                '<p class="placeholder">' + esc(m.error) + '</p>';
+                '<p class="placeholder mb">' + esc(m.error) + '</p>';
         return;
       }
       html += '<div class="result-item"><div class="kv">';
@@ -770,58 +907,43 @@
       html += '</div></div>';
     });
 
-    if (errors.length) {
-      html += '<p class="ri-label" style="margin-top:14px">Extraction errors (' + errors.length + ')</p>';
-      errors.forEach(function (e) { html += '<p class="placeholder">' + esc(e) + '</p>'; });
+    if ((report.metadata_errors || []).length) {
+      html += '<p class="ri-label mt">Extraction warnings (' + report.metadata_errors.length + ')</p>';
+      report.metadata_errors.forEach(function (e) { html += '<p class="placeholder mt">' + esc(e) + '</p>'; });
     }
 
-    body.innerHTML = html;
+    document.getElementById("meta-body").innerHTML = html;
   }
 
-  function renderHash(report) {
+  function renderHash(report, overall) {
+    setChip("hash-chip", overall.state, overall.label);
     var body = document.getElementById("hash-body");
     var h = report.verification_hash;
     if (!h) {
-      body.innerHTML = '<p class="placeholder">No verification hash was produced (the pipeline did not complete).</p>';
+      body.innerHTML = '<p class="placeholder">No verification hash was produced — the pipeline did not complete.</p>';
       return;
     }
     body.innerHTML =
       '<div class="hash-hero">' + esc(h) + '</div>' +
       '<div style="margin-top:10px">' + copyBtn(h) + '</div>' +
-      '<p class="placeholder" style="margin-top:12px">Deterministic hash of the face representation, reverse-search results, and metadata. The same image bytes always produce the same path-independent hash.</p>';
+      '<p class="placeholder mt">Deterministic hash of the face representation, reverse-search results, and metadata. The same image bytes always produce the same path-independent hash.</p>';
   }
 
-  function badge(kind, text) {
-    return '<span class="badge badge-' + kind + '">' + text + '</span>';
-  }
-
-  function renderBlockchain(data) {
-    var body = document.getElementById("chain-body");
+  function renderBlockchain(data, stage) {
+    setChip("chain-chip", stage.state, stage.label);
     var report = data.report;
     var req = data.request || {};
-    var chainError = report.blockchain_error;
-    var bc = report.blockchain;
-
     var html = '<div class="kv">';
     html += '<div class="k">Network</div><div class="v">Sepolia (chain ID ' + esc(req.chain_id != null ? req.chain_id : 11155111) + ')</div>';
-
     if (req.contract_address) {
       html += '<div class="k">Contract</div><div class="v long"><span>' + esc(req.contract_address) + '</span>' + copyBtn(req.contract_address) + '</div>';
     }
 
-    if (!req.blockchain_enabled && !bc && !chainError) {
-      html += '</div>';
-      html += '<div class="note muted-only" style="margin-top:12px"><p class="ri-body"><b>Blockchain disabled.</b> This verification was not recorded on-chain.</p></div>';
-    } else if (chainError) {
-      html += '</div>';
-      var isConfig = /environment variable is not set/.test(chainError);
-      html += '<div class="note ' + (isConfig ? "warn" : "danger") + '" style="margin-top:12px">' +
-              '<p class="ri-body"><b>' + (isConfig ? "Blockchain configuration required." : "Blockchain recording failed.") + '</b></p></div>' +
-              '<p class="placeholder">' + esc(chainError) + '</p>';
-    } else if (bc) {
-      html += '<div class="k">Status</div><div class="v">' +
-              (bc.duplicate ? badge("warn", "Already recorded") :
-               (bc.confirmed ? badge("ok", "Confirmed") : badge("danger", "Not confirmed"))) +
+    if (stage.state === "complete" && report.blockchain) {
+      var bc = report.blockchain;
+      html += '<div class="k">Record status</div><div class="v">' +
+              (bc.duplicate ? badge("ok", "Already recorded") :
+               (bc.confirmed ? badge("ok", "Confirmed") : badge("warn", "Confirmation pending"))) +
               '</div>';
       html += '<div class="k">Recorded hash</div><div class="v long"><span>' + esc(bc.verification_hash) + '</span>' + copyBtn(bc.verification_hash) + '</div>';
       if (bc.transaction_hash) {
@@ -830,52 +952,43 @@
       if (bc.block_number != null) {
         html += '<div class="k">Block number</div><div class="v">' + esc(bc.block_number) + '</div>';
       }
-      html += '</div>';
-      if (bc.explorer_url && bc.confirmed) {
-        html += '<div style="margin-top:12px"><a class="ri-url" href="' + esc(bc.explorer_url) + '" target="_blank" rel="noopener noreferrer">View transaction on Sepolia Etherscan &rarr;</a></div>';
+    }
+    html += '</div>';
+
+    if (stage.state === "disabled") {
+      html += '<div class="note mt"><p class="ri-body"><b>DISABLED.</b> ' + esc(stage.detail) + '</p></div>';
+    } else if (stage.state === "not_run") {
+      html += '<div class="note mt"><p class="ri-body"><b>NOT RUN.</b> ' + esc(stage.detail) + '</p></div>';
+    } else if (stage.state === "failed") {
+      var err = report.blockchain_error || "";
+      var isConfig = /environment variable is not set/.test(err);
+      html += '<div class="note ' + (isConfig ? "warn" : "danger") + ' mt"><p class="ri-body"><b>FAILED.</b> ' + esc(stage.detail) + '</p></div>';
+      html += '<p class="placeholder mt">' + esc(err) + '</p>';
+    } else if (stage.state === "complete" && report.blockchain) {
+      html += '<div class="note ok mt"><p class="ri-body"><b>' + esc(stage.label) + '.</b> ' + esc(stage.detail) + '</p></div>';
+      if (report.blockchain.explorer_url && report.blockchain.confirmed) {
+        html += '<div class="mt"><a class="ri-url" href="' + esc(report.blockchain.explorer_url) + '" target="_blank" rel="noopener noreferrer">View transaction on Sepolia Etherscan &rarr;</a></div>';
       }
-    } else {
-      html += '</div>';
-      html += '<div class="note muted-only" style="margin-top:12px"><p class="ri-body"><b>No on-chain record.</b></p></div>';
     }
 
-    body.innerHTML = html;
+    document.getElementById("chain-body").innerHTML = html;
   }
 
   function renderResults(data) {
     var report = data.report;
+    var verification = data.verification || {};
+    var overall = verification.overall || {
+      state: "neutral", label: "VERIFICATION", detail: "", issues: []
+    };
+    var stages = stagesByName(verification.stages);
 
-    var bannerKind = "ok";
-    var title = "Verification complete";
-    var detail = "The pipeline finished. Review each section below.";
+    renderSummary(verification);
+    renderFace(report, stages["Face Detection"]);
+    renderSearch(report, stages["Reverse Image Search"]);
+    renderMetadata(report, stages["Metadata"]);
+    renderHash(report, overall);
+    renderBlockchain(data, stages["Blockchain"]);
 
-    var status = report.status;
-    if (status === "no_face_detected") {
-      bannerKind = "warn"; title = "No face detected";
-      detail = "The image does not contain a detectable face, so verification stopped before reverse search.";
-    } else if (status === "multiple_faces") {
-      bannerKind = "warn"; title = "Multiple faces detected";
-      detail = "Exactly one face is required for verification; the pipeline stopped before reverse search.";
-    } else if (status === "face_detection_failed") {
-      bannerKind = "danger"; title = "Face detection failed";
-      detail = (report.errors || [])[0] || "The face detection model could not be initialized.";
-    } else if (status === "reverse_search_failed") {
-      bannerKind = "danger"; title = "Reverse image search failed";
-      detail = (report.reverse_search_error || "The external provider could not be reached.") + " Check Google Cloud Vision credentials/billing on the server.";
-    } else if (status === "metadata_failed") {
-      bannerKind = "danger"; title = "Metadata extraction failed";
-      detail = "None of the discovered pages could be accessed.";
-    } else if (status !== "success") {
-      bannerKind = "neutral"; title = "Verification incomplete";
-      detail = (report.errors || []).join(" ") || "Unknown pipeline status.";
-    }
-
-    banner(bannerKind, title, detail);
-    renderFace(report);
-    renderSearch(report);
-    renderMetadata(report);
-    renderHash(report);
-    renderBlockchain(data);
     results.classList.remove("hidden");
   }
 

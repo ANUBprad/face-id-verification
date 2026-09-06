@@ -72,6 +72,13 @@ def _success_pipeline():
     )
 
 
+def _blockchain_pipeline(**kwargs):
+    pipeline = _success_pipeline()
+    pipeline._blockchain_enabled = True
+    pipeline._contract_address = kwargs["contract_address"]
+    return pipeline
+
+
 @pytest.fixture
 def client():
     app = create_app(pipeline_builder=lambda **kwargs: _success_pipeline())
@@ -242,13 +249,7 @@ class TestBlockchainFlow:
             explorer_url="https://sepolia.etherscan.io/tx/0xabc",
         )
 
-        def builder(**kwargs):
-            pipeline = _success_pipeline()
-            pipeline._blockchain_enabled = True
-            pipeline._contract_address = kwargs["contract_address"]
-            return pipeline
-
-        app = create_app(pipeline_builder=builder)
+        app = create_app(pipeline_builder=_blockchain_pipeline)
         with patch(
             "face_id_verification.pipeline.record_verification",
             return_value=record,
@@ -269,11 +270,12 @@ class TestBlockchainFlow:
         assert "etherscan" in chain["explorer_url"]
 
     def test_contract_address_checksummed(self):
+        captured = []
+
         def builder(**kwargs):
-            seen["contract"] = kwargs["contract_address"]
+            captured.append(kwargs["contract_address"])
             return _success_pipeline()
 
-        seen = {}
         app = create_app(pipeline_builder=builder)
         response = TestClient(app).post(
             "/api/verify",
@@ -284,7 +286,114 @@ class TestBlockchainFlow:
             },
         )
         assert response.status_code == 200
-        assert seen["contract"] == "0x0000000000000000000000000000000000000001"
+        assert captured == ["0x0000000000000000000000000000000000000001"]
+
+
+class TestVerificationState:
+    def test_success_payload_states(self, client):
+        response = client.post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+        assert response.status_code == 200
+        verification = response.json()["verification"]
+        assert verification["overall"]["state"] == "complete"
+        assert verification["overall"]["issues"] == []
+        stages = {s["name"]: s for s in verification["stages"]}
+        assert stages["Face Detection"]["state"] == "complete"
+        assert stages["Reverse Image Search"]["state"] == "complete"
+        assert stages["Metadata"]["state"] == "complete"
+        assert stages["Blockchain"]["state"] == "disabled"
+
+    def test_reverse_search_failure_marks_metadata_not_run(self):
+        def builder(**kwargs):
+            pipeline = _success_pipeline()
+            pipeline._blockchain_enabled = kwargs["blockchain_enabled"]
+            pipeline._contract_address = kwargs["contract_address"]
+            pipeline._reverse_searcher.search = MagicMock(
+                side_effect=RuntimeError("Vision API unreachable")
+            )
+            return pipeline
+
+        app = create_app(pipeline_builder=builder)
+        response = TestClient(app).post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+            data={
+                "enable_blockchain": "true",
+                "contract_address": "0x0000000000000000000000000000000000000001",
+            },
+        )
+        assert response.status_code == 200
+        verification = response.json()["verification"]
+        assert verification["overall"]["state"] == "failed"
+        stages = {s["name"]: s for s in verification["stages"]}
+        reverse_failed = stages["Reverse Image Search"]
+        assert reverse_failed["state"] == "failed"
+        metadata = stages["Metadata"]
+        assert metadata["state"] == "not_run"
+        assert metadata["label"] == "NOT RUN"
+        assert "reverse image search failed" in metadata["detail"]
+        assert stages["Blockchain"]["state"] == "failed"
+
+    def test_blockchain_record_complete_state(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc123",
+            transaction_hash="0x" + "ab" * 32,
+            block_number=12345,
+            confirmed=True,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        with patch(
+            "face_id_verification.pipeline.record_verification",
+            return_value=record,
+        ):
+            response = TestClient(app).post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+            )
+        assert response.status_code == 200
+        verification = response.json()["verification"]
+        assert verification["overall"]["state"] == "complete"
+        stages = {s["name"]: s for s in verification["stages"]}
+        assert stages["Blockchain"]["state"] == "complete"
+        assert verification["overall"]["issues"] == []
+
+    def test_blockchain_failure_creates_overall_issue(self):
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        with patch(
+            "face_id_verification.pipeline.record_verification",
+            side_effect=RuntimeError("RPC endpoint unreachable"),
+        ):
+            response = TestClient(app).post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+            )
+        assert response.status_code == 200
+        verification = response.json()["verification"]
+        assert verification["overall"]["state"] == "complete"
+        assert len(verification["overall"]["issues"]) == 1
+        stages = {s["name"]: s for s in verification["stages"]}
+        assert stages["Blockchain"]["state"] == "failed"
+
+    def test_served_html_does_not_label_metadata_failed(self, client):
+        html = client.get("/").text
+        assert "Metadata extraction failed" not in html
+        assert "verification.stages" in html
 
 
 class TestErrorHandling:

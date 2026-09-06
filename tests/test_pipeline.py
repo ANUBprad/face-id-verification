@@ -9,7 +9,7 @@ import pytest
 
 from face_id_verification.blockchain_recording import BlockchainRecord, compute_verification_hash
 from face_id_verification.face_detection import DetectedFace, FaceDetectionError, FaceAnalyzer
-from face_id_verification.metadata_extraction import MetadataExtractionError, PostMetadata
+from face_id_verification.metadata_extraction import MetadataExtractionError, PostMetadata, extract_metadata
 from face_id_verification.pipeline import (
     FaceResult,
     MetadataResult,
@@ -621,3 +621,23 @@ class TestPipelineTimeout:
              patch("face_id_verification.pipeline.ReverseImageSearcher") as mock_rs:
             VerificationPipeline(timeout=25.0)
             mock_rs.assert_called_once_with(timeout=25.0)
+
+    def test_timeout_passed_to_default_metadata_extractor(self):
+        with patch("face_id_verification.pipeline.FaceAnalyzer"), \
+             patch("face_id_verification.pipeline.ReverseImageSearcher"):
+            pipeline = VerificationPipeline(timeout=25.0)
+            assert "timeout" in pipeline._metadata_extractor.keywords
+            assert pipeline._metadata_extractor.keywords["timeout"] == 25.0
+
+    def test_no_timeout_keeps_default_metadata_extractor(self):
+        with patch("face_id_verification.pipeline.FaceAnalyzer"), \
+             patch("face_id_verification.pipeline.ReverseImageSearcher"):
+            pipeline = VerificationPipeline(timeout=None)
+            assert pipeline._metadata_extractor == extract_metadata
+
+    def test_custom_metadata_extractor_untouched(self):
+        custom = lambda url: _make_metadata(url=url)  # noqa: E731
+        with patch("face_id_verification.pipeline.FaceAnalyzer"), \
+             patch("face_id_verification.pipeline.ReverseImageSearcher"):
+            pipeline = VerificationPipeline(metadata_extractor=custom, timeout=25.0)
+            assert pipeline._metadata_extractor is custom

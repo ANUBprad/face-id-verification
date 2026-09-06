@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from face_id_verification.metadata_extraction import (
+    DEFAULT_TIMEOUT,
     KNOWN_PLATFORMS,
     MetadataExtractionError,
     PostMetadata,
@@ -313,6 +314,38 @@ class TestExtractMetadata:
             assert result.source_url == "https://instagram.com/p/abc123/"
             assert result.platform == "instagram"
             assert result.title == "OG Test"
+
+    def test_custom_timeout(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "text/html"}
+        mock_response.content = "<html><head></head></html>".encode("utf-8")
+        mock_response.close = MagicMock()
+
+        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
+            mock_requests.get.return_value = mock_response
+            mock_requests.Timeout = TimeoutError
+            mock_requests.ConnectionError = ConnectionError
+
+            extract_metadata("https://example.com/page", timeout=7.5)
+            _, kwargs = mock_requests.get.call_args
+            assert kwargs.get("timeout") == 7.5
+
+    def test_default_timeout(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "text/html"}
+        mock_response.content = "<html><head></head></html>".encode("utf-8")
+        mock_response.close = MagicMock()
+
+        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
+            mock_requests.get.return_value = mock_response
+            mock_requests.Timeout = TimeoutError
+            mock_requests.ConnectionError = ConnectionError
+
+            extract_metadata("https://example.com/page")
+            _, kwargs = mock_requests.get.call_args
+            assert kwargs.get("timeout") == DEFAULT_TIMEOUT
 
     def test_non_html_content(self):
         mock_response = MagicMock()

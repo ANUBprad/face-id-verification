@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = "buffalo_l"
 EMBEDDING_DIMENSION = 512
-DEFAULT_SIMILARITY_THRESHOLD = 0.4
 
 
 class FaceDetectionError(Exception):

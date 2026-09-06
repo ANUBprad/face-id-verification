@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 from face_id_verification.blockchain_recording import (
@@ -76,14 +78,17 @@ class VerificationPipeline:
         self,
         face_analyzer: FaceAnalyzer | None = None,
         reverse_searcher: ReverseImageSearcher | None = None,
-        metadata_extractor: callable = extract_metadata,
+        metadata_extractor: Callable[[str], PostMetadata] | None = None,
         blockchain_enabled: bool = False,
         contract_address: str | None = None,
         timeout: float | None = None,
     ) -> None:
         self._face_analyzer = face_analyzer or FaceAnalyzer()
         self._reverse_searcher = reverse_searcher or ReverseImageSearcher(timeout=timeout)
-        self._metadata_extractor = metadata_extractor or extract_metadata
+        self._metadata_extractor = (
+            metadata_extractor
+            or (partial(extract_metadata, timeout=timeout) if timeout is not None else extract_metadata)
+        )
         self._blockchain_enabled = blockchain_enabled
         self._contract_address = contract_address
 

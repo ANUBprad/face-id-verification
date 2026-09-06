@@ -178,14 +178,14 @@ def _parse_html(html: str, source_url: str) -> dict[str, str | list[str]]:
     return result
 
 
-def extract_metadata(url: str) -> PostMetadata:
+def extract_metadata(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> PostMetadata:
     _validate_url(url)
     platform = _detect_platform(url)
 
     try:
         response = requests.get(
             url,
-            timeout=DEFAULT_TIMEOUT,
+            timeout=timeout,
             headers={"User-Agent": USER_AGENT},
             allow_redirects=True,
             stream=True,

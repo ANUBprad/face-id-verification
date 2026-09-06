@@ -439,6 +439,12 @@ class TestVerificationState:
         assert "BLOCKED" in html
         assert "verification.stages" in html
 
+    def test_served_html_renders_metadata_not_run_not_pending(self, client):
+        html = client.get("/").text
+        assert "Metadata extraction was not run because reverse image search did not complete." in html
+        assert "Metadata was not run because reverse image search" not in html
+        assert 'evidenceCard("Metadata", "Pending"' not in html
+
 
 class TestErrorHandling:
     def test_pipeline_exception_returned_as_500(self):

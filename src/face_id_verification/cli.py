@@ -56,7 +56,7 @@ def _exit_code_for_status(status: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="face-id-verification",
-        description="Face identity verification pipeline",
+        description="MukhdaX face identity verification pipeline (See. Trace. Verify.)",
     )
     parser.add_argument(
         "--image",

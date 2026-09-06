@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "face-id-verification"
 version = "0.1.0"
-description = "Face identity verification pipeline"
+description = "MukhdaX face identity verification pipeline (See. Trace. Verify.)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

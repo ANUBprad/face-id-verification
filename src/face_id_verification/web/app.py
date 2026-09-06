@@ -137,7 +137,7 @@ def create_app(
     pipeline_builder: PipelineBuilder = _default_pipeline_builder,
 ) -> FastAPI:
     app = FastAPI(
-        title="Face ID Verification Web",
+        title="MukhdaX",
         version=_package_version(),
         docs_url=None,
         redoc_url=None,

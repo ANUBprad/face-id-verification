@@ -1,4 +1,6 @@
-# Face ID Verification
+# MukhdaX
+
+> See. Trace. Verify.
 
 A local pipeline that turns an image containing a face into a **tamper-evident verification record**: detect the face, discover where the image genuinely matches on the public web, extract post metadata, fingerprint the whole evidence set, and optionally anchor it on the Ethereum Sepolia testnet.
 
@@ -13,7 +15,7 @@ Face/Image Input
   → Structured Report / Web UI
 ```
 
-## What "Face ID Verification" means here
+## What MukhdaX does — and does not
 
 This project does **not** perform biometric identity verification:
 

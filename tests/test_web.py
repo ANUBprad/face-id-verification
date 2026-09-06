@@ -99,7 +99,7 @@ class TestRootPage:
         response = client.get("/")
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
-        assert "FACE ID" in response.text
+        assert "MukhdaX" in response.text
         assert "Drop an image here" in response.text
 
     def test_api_docs_disabled(self, client):

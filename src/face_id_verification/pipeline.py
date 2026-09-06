@@ -43,9 +43,13 @@ class FaceResult:
 @dataclass(frozen=True)
 class MetadataResult:
     source_url: str
-    title: str | None
-    description: str | None
-    platform: str | None
+    canonical_url: str | None = None
+    title: str | None = None
+    description: str | None = None
+    platform: str | None = None
+    published_at: str | None = None
+    modified_at: str | None = None
+    content_type: str | None = None
     error: str | None = None
 
 
@@ -235,9 +239,13 @@ class VerificationPipeline:
                 meta = self._metadata_extractor(url)
                 results.append(MetadataResult(
                     source_url=meta.source_url,
+                    canonical_url=meta.canonical_url,
                     title=meta.title,
                     description=meta.description,
                     platform=meta.platform,
+                    published_at=meta.published_at,
+                    modified_at=meta.modified_at,
+                    content_type=meta.content_type,
                 ))
             except MetadataExtractionError as e:
                 errors.append(f"Metadata extraction failed for {url}: {e}")

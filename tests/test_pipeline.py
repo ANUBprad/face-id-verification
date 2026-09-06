@@ -614,6 +614,100 @@ class TestReportModel:
         r_err = MetadataResult(source_url="https://example.com", title=None, description=None, platform=None, error="failed")
         assert r_err.error == "failed"
 
+    def test_metadata_result_carries_full_fields(self):
+        r = MetadataResult(
+            source_url="https://example.com/post",
+            canonical_url="https://example.com/canonical",
+            title="T",
+            description="D",
+            platform="instagram",
+            published_at="2024-01-15T10:30:00Z",
+            modified_at="2024-01-20T14:00:00Z",
+            content_type="article",
+        )
+        assert r.canonical_url == "https://example.com/canonical"
+        assert r.published_at == "2024-01-15T10:30:00Z"
+        assert r.modified_at == "2024-01-20T14:00:00Z"
+        assert r.content_type == "article"
+
+
+class TestMetadataResultExtraction:
+    def test_extract_metadata_populates_optional_fields(self, sample_image):
+        rich = PostMetadata(
+            source_url="https://example.com/post",
+            canonical_url="https://example.com/canonical",
+            title="Title",
+            description="Description",
+            images=["https://example.com/img.jpg"],
+            published_at="2024-01-15T10:30:00Z",
+            modified_at="2024-01-20T14:00:00Z",
+            site_name="Example",
+            content_type="article",
+            platform="instagram",
+        )
+        search = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/post", page_title="Post")]
+        )
+
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: rich,
+            blockchain_enabled=False,
+        )
+
+        results, errors = pipeline._extract_metadata(search)
+        assert errors == []
+        assert len(results) == 1
+        result = results[0]
+        assert result.canonical_url == "https://example.com/canonical"
+        assert result.published_at == "2024-01-15T10:30:00Z"
+        assert result.modified_at == "2024-01-20T14:00:00Z"
+        assert result.content_type == "article"
+
+    def test_metadata_optional_fields_not_in_verification_payload(self, sample_image):
+        rich = PostMetadata(
+            source_url="https://example.com/post",
+            canonical_url="https://example.com/canonical",
+            title="Title",
+            published_at="2024-01-15T10:30:00Z",
+            content_type="article",
+            platform="instagram",
+        )
+        search = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/post", page_title="Post")]
+        )
+
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: rich,
+            blockchain_enabled=False,
+        )
+        report = pipeline.verify(sample_image)
+        payload = pipeline._build_payload(
+            image_content_hash(sample_image),
+            report.faces,
+            search,
+            pipeline._extract_metadata(search)[0],
+        )
+        serialized = json.dumps(payload)
+
+        assert report.verification_hash is not None
+        assert "canonical_url" not in serialized
+        assert "published_at" not in serialized
+        assert "canonical" not in serialized
+
 
 class TestPipelineTimeout:
     def test_timeout_passed_to_searcher(self):

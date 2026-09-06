@@ -3,190 +3,405 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Face ID Verification</title>
+<meta name="color-scheme" content="dark">
+<title>Face ID Verification — AI-Powered Authenticity &amp; Provenance</title>
 <style>
   :root {
-    --bg: #0b0f14;
-    --surface: #121a26;
-    --surface-2: #16202f;
-    --border: #233147;
-    --border-soft: #1c2838;
-    --text: #e6edf3;
-    --muted: #93a1b3;
+    --bg: #070b12;
+    --bg-soft: #0b111c;
+    --surface: #101827;
+    --surface-2: #141e2f;
+    --surface-3: #1a2639;
+    --border: #1e2b40;
+    --border-soft: #172136;
+    --border-strong: #2b3b57;
+    --text: #e6edf7;
+    --text-dim: #a3b2c7;
+    --muted: #6e7f99;
     --accent: #4f8cff;
-    --accent-soft: rgba(79, 140, 255, 0.14);
-    --ok: #2ea043;
-    --ok-soft: rgba(46, 160, 67, 0.14);
-    --warn: #d29922;
-    --warn-soft: rgba(210, 153, 34, 0.14);
-    --danger: #f85149;
-    --danger-soft: rgba(248, 81, 73, 0.14);
-    --neutral-soft: rgba(147, 161, 179, 0.12);
-    --radius: 10px;
-    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --accent-strong: #3367d6;
+    --accent-soft: rgba(79, 140, 255, 0.12);
+    --ok: #3aaf6f;
+    --ok-soft: rgba(58, 175, 111, 0.13);
+    --warn: #e0a43c;
+    --warn-soft: rgba(224, 164, 60, 0.13);
+    --danger: #ec5f5b;
+    --danger-soft: rgba(236, 95, 91, 0.13);
+    --neutral-soft: rgba(110, 127, 153, 0.14);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px rgba(0, 0, 0, 0.28);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "SF Mono", SFMono-Regular, ui-monospace, Consolas, "Roboto Mono", Menlo, monospace;
   }
 
   * { box-sizing: border-box; }
+
+  html:focus-within { scroll-behavior: smooth; }
 
   html, body {
     margin: 0;
     padding: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: var(--sans);
-    line-height: 1.5;
+    font-family: var(--font-sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }
 
   body {
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    padding: 32px 20px 48px;
+    background:
+      radial-gradient(900px 340px at 50% -140px, rgba(79, 140, 255, 0.09), transparent 70%),
+      var(--bg);
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .skip-link {
+    position: absolute;
+    left: -999px;
+    top: 0;
+    background: var(--surface-3);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 0 0 var(--radius-sm) 0;
+    padding: 8px 14px;
+    z-index: 100;
+  }
+  .skip-link:focus { left: 0; text-decoration: none; }
+
+  :focus { outline: none; }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
 
   .shell {
     width: 100%;
-    max-width: 980px;
+    max-width: 1120px;
     margin: 0 auto;
-    flex: 1;
+    padding: 0 24px;
   }
 
-  header.site {
-    margin-bottom: 28px;
+  /* ---------- Header ---------- */
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(7, 11, 18, 0.82);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border-soft);
   }
 
-  header.site h1 {
-    margin: 0;
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--text);
-  }
-
-  header.site h1 .accent { color: var(--accent); }
-
-  header.site p {
-    margin: 6px 0 0;
-    color: var(--muted);
-    font-size: 14px;
-    max-width: 72ch;
-  }
-
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px 22px;
-    margin-bottom: 18px;
-  }
-
-  .card h2 {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .card-head {
+  .header-inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: 16px;
+    height: 64px;
   }
 
-  .dropzone {
-    border: 2px dashed var(--border);
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .logo-mark {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(150deg, var(--accent-strong), #23468f);
+    color: #eaf1ff;
+    box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.4), 0 4px 14px rgba(51, 103, 214, 0.35);
+  }
+
+  .logo-mark svg { width: 22px; height: 22px; }
+
+  .brand-name {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    display: block;
+  }
+  .brand-name .accent { color: var(--accent); }
+
+  .brand-sub {
+    display: block;
+    font-size: 11.5px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .status-badge .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+
+  .status-badge.network { color: #c9d8ee; border-color: rgba(79, 140, 255, 0.35); background: rgba(79, 140, 255, 0.08); }
+  .status-badge.network .dot { background: var(--accent); box-shadow: 0 0 6px rgba(79, 140, 255, 0.8); }
+
+  .status-badge.server[data-alive="up"] { color: var(--ok); border-color: rgba(58, 175, 111, 0.4); background: rgba(58, 175, 111, 0.08); }
+  .status-badge.server[data-alive="up"] .dot { background: var(--ok); box-shadow: 0 0 6px rgba(58, 175, 111, 0.8); }
+  .status-badge.server[data-alive="down"] { color: var(--danger); border-color: rgba(236, 95, 91, 0.4); background: var(--danger-soft); }
+  .status-badge.server[data-alive="down"] .dot { background: var(--danger); }
+  .status-badge.server[data-alive="checking"] { color: var(--muted); }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 5fr);
+    gap: 40px;
+    align-items: start;
+    padding: 44px 0 30px;
+  }
+
+  .hero-copy .eyebrow,
+  .result-summary .eyebrow {
+    margin: 0 0 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .hero h1 {
+    margin: 0 0 14px;
+    font-size: 30px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    font-weight: 800;
+  }
+
+  .hero-sub {
+    margin: 0 0 20px;
+    color: var(--text-dim);
+    font-size: 14.5px;
+    max-width: 46ch;
+  }
+
+  .trust-indicators {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .trust-indicators li {
+    padding: 5px 11px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  /* ---------- Panels ---------- */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 30px 24px;
+    box-shadow: var(--shadow);
+  }
+
+  .panel-pad { padding: 22px; }
+
+  .upload-panel { min-width: 0; }
+
+  .dropzone {
+    border: 1.5px dashed var(--border-strong);
+    border-radius: var(--radius);
+    padding: 34px 24px;
     text-align: center;
     cursor: pointer;
-    transition: border-color .15s ease, background .15s ease;
     background: var(--surface-2);
+    transition: border-color 0.14s ease, background 0.14s ease, transform 0.14s ease;
   }
 
   .dropzone:hover, .dropzone.dragover {
     border-color: var(--accent);
     background: var(--accent-soft);
   }
+  .dropzone:active { transform: scale(0.995); }
 
-  .dropzone .dz-title {
+  .dz-icon {
+    width: 46px;
+    height: 46px;
+    margin: 0 auto 14px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .dz-icon svg { width: 24px; height: 24px; }
+
+  .dz-title {
+    margin: 0 0 6px;
     font-size: 16px;
     font-weight: 600;
-    margin: 0 0 6px;
   }
 
-  .dropzone .dz-sub {
+  .dz-or {
+    margin: 0 0 14px;
+    font-size: 12.5px;
     color: var(--muted);
-    font-size: 13px;
-    margin: 0;
   }
 
-  .dropzone.has-file { border-style: solid; }
-
-  .preview-row {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-top: 16px;
-  }
-
-  .preview-thumb {
-    width: 88px;
-    height: 88px;
-    object-fit: cover;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: #000;
-    flex: 0 0 auto;
-  }
-
-  .preview-meta {
-    font-size: 13px;
+  .dz-meta {
+    margin: 16px 0 0;
+    font-size: 12px;
     color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
+    letter-spacing: 0.02em;
   }
 
-  .preview-meta .name { color: var(--text); font-weight: 500; word-break: break-all; }
-
-  .actions { margin-top: 18px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-
+  /* ---------- Buttons ---------- */
   .btn {
     appearance: none;
     border: 1px solid transparent;
-    border-radius: 8px;
-    font-family: var(--sans);
+    border-radius: 9px;
+    font-family: var(--font-sans);
     font-size: 14px;
     font-weight: 600;
     padding: 10px 22px;
     cursor: pointer;
-    transition: filter .12s ease, background .12s ease, opacity .12s ease;
+    transition: background 0.12s ease, border-color 0.12s ease, filter 0.12s ease, opacity 0.12s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
 
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:not(:disabled):hover { filter: brightness(1.1); }
+  .btn-primary {
+    background: var(--accent-strong);
+    color: #fff;
+    border-color: rgba(79, 140, 255, 0.5);
+    box-shadow: 0 4px 14px rgba(51, 103, 214, 0.3);
+  }
+  .btn-primary:not(:disabled):hover { background: var(--accent); filter: brightness(1.05); }
+  .btn-primary:not(:disabled):active { transform: translateY(1px); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-dim);
+    border-color: var(--border);
+  }
+  .btn-ghost:not(:disabled):hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-2); }
+
+  .btn-verify {
+    width: 100%;
+    justify-content: center;
+    margin-top: 18px;
+    padding: 12px 22px;
+    font-size: 15px;
+  }
 
   .btn-copy {
+    appearance: none;
     background: transparent;
     color: var(--muted);
     border: 1px solid var(--border);
-    padding: 4px 10px;
+    padding: 3px 10px;
     border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
+    font-size: 11.5px;
+    font-weight: 600;
     cursor: pointer;
-    font-family: var(--sans);
+    font-family: var(--font-sans);
+    letter-spacing: 0.03em;
+  }
+  .btn-copy:hover { color: var(--text); border-color: var(--accent); }
+  .btn-copy[data-copied="true"] { color: var(--ok); border-color: rgba(58, 175, 111, 0.5); }
+
+  /* ---------- Preview ---------- */
+  .preview-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
   }
 
-  .btn-copy:hover { color: var(--text); border-color: var(--accent); }
+  .preview-thumb {
+    width: 74px;
+    height: 74px;
+    object-fit: cover;
+    border-radius: 10px;
+    border: 1px solid var(--border-strong);
+    background: #05080d;
+    flex: 0 0 auto;
+  }
 
-  .err-msg {
+  .preview-meta { min-width: 0; flex: 1; }
+
+  .preview-meta .name {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 14px;
+    word-break: break-all;
+    margin-bottom: 3px;
+  }
+
+  .preview-meta .meta-line { color: var(--muted); font-size: 12px; }
+
+  .preview-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+
+  .remove-btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+  }
+  .remove-btn:hover { color: var(--danger); border-color: var(--danger); }
+
+  .upload-error {
     display: none;
     margin-top: 14px;
     padding: 10px 14px;
@@ -196,15 +411,14 @@
     color: var(--text);
     font-size: 13px;
   }
-
-  .err-msg.visible { display: block; }
+  .upload-error.visible { display: block; }
 
   details.advanced {
     margin-top: 16px;
     border: 1px solid var(--border-soft);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     padding: 10px 14px;
-    background: var(--surface-2);
+    background: var(--bg-soft);
   }
 
   details.advanced summary {
@@ -213,191 +427,369 @@
     color: var(--muted);
     user-select: none;
   }
-
   details.advanced summary:hover { color: var(--text); }
 
-  details.advanced .adv-body { margin-top: 12px; }
+  .adv-body { margin-top: 12px; }
 
   .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
 
-  .field label {
-    display: block;
-    font-size: 13px;
-    margin-bottom: 6px;
-    color: var(--muted);
-  }
-
-  .field input[type="checkbox"] { margin-right: 8px; }
+  .field label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--text-dim); }
+  .field input[type="checkbox"] { margin-right: 8px; accent-color: var(--accent); }
 
   .field input[type="text"] {
     width: 100%;
     background: var(--bg);
     border: 1px solid var(--border);
     color: var(--text);
-    font-family: var(--mono);
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
     padding: 9px 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
   }
-
-  .field input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  .field input[type="text"]:focus-visible { border-color: var(--accent); outline: none; }
 
   .field .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
-  /* Processing */
-  #processing { text-align: center; padding: 40px 22px; }
+  /* ---------- Workflow ---------- */
+  .workflow { margin-bottom: 26px; }
+
+  .workflow-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .workflow-head .wf-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .workflow-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 13px;
+  }
 
   .spinner {
-    width: 34px;
-    height: 34px;
-    margin: 0 auto 16px;
-    border: 3px solid var(--border);
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border-strong);
     border-top-color: var(--accent);
     border-radius: 50%;
-    animation: spin 0.9s linear infinite;
+    animation: spin 0.8s linear infinite;
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  #processing .proc-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
-
-  #processing .proc-sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
-
-  #processing ol.stages {
-    display: inline-block;
-    text-align: left;
-    margin: 0;
-    padding-left: 20px;
-    color: var(--muted);
-    font-size: 13px;
-    max-width: 60ch;
-  }
-
-  /* Overall summary */
-  .banner {
-    display: none;
-    border-radius: var(--radius);
-    padding: 16px 20px;
-    margin-bottom: 16px;
-    border: 1px solid transparent;
-  }
-
-  .banner.visible { display: block; }
-  .banner.ok    { background: var(--ok-soft); border-color: var(--ok); }
-  .banner.warn  { background: var(--warn-soft); border-color: var(--warn); }
-  .banner.danger{ background: var(--danger-soft); border-color: var(--danger); }
-  .banner.neutral { background: var(--neutral-soft); border-color: var(--border); }
-
-  .banner .b-title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
-  .banner .b-detail { font-size: 13px; margin: 0; color: var(--muted); }
-
-  .stage-strip {
+  .workflow-row {
+    position: relative;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    grid-template-columns: repeat(5, 1fr);
     gap: 10px;
-    margin-bottom: 14px;
   }
 
-  .stage-chip {
+  .workflow-row::before {
+    content: "";
+    position: absolute;
+    left: 3%;
+    right: 3%;
+    top: 19px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .wstep {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .ws-node {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
     background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--muted);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border: 1px solid var(--border-strong);
+    color: var(--muted);
+    position: relative;
+    z-index: 1;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+  .ws-node svg { width: 19px; height: 19px; }
+
+  .wstep.st-complete .ws-node { border-color: rgba(58, 175, 111, 0.6); color: var(--ok); background: var(--ok-soft); }
+  .wstep.st-failed .ws-node { border-color: rgba(236, 95, 91, 0.6); color: var(--danger); background: var(--danger-soft); }
+  .wstep.st-blocked .ws-node { border-color: rgba(224, 164, 60, 0.6); color: var(--warn); background: var(--warn-soft); }
+  .wstep.st-pending .ws-node { animation: pulse 1.6s ease-in-out infinite; border-color: rgba(79, 140, 255, 0.55); color: var(--accent); background: var(--accent-soft); }
+  .wstep.st-not_run .ws-node, .wstep.st-disabled .ws-node { opacity: 0.72; }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.0); }
+    50% { box-shadow: 0 0 0 5px rgba(79, 140, 255, 0.14); }
   }
 
-  .stage-chip .sc-name {
-    font-size: 11px;
+  .ws-name {
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .ws-state {
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
     color: var(--muted);
   }
+  .wstep.st-complete .ws-state { color: var(--ok); }
+  .wstep.st-failed .ws-state { color: var(--danger); }
+  .wstep.st-blocked .ws-state { color: var(--warn); }
+  .wstep.st-pending .ws-state { color: var(--accent); }
 
-  .stage-chip .sc-state {
-    font-size: 13px;
-    font-weight: 700;
-    margin-top: 3px;
+  .ws-desc { font-size: 11px; color: var(--muted); max-width: 100%; }
+
+  /* ---------- Result summary ---------- */
+  .result-area { margin-bottom: 26px; }
+
+  .result-summary { margin-bottom: 20px; }
+
+  .result-summary h2 {
+    margin: 0 0 10px;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
   }
 
-  .stage-chip.st-complete { border-left-color: var(--ok); }
-  .stage-chip.st-complete .sc-state { color: var(--ok); }
-  .stage-chip.st-failed { border-left-color: var(--danger); }
-  .stage-chip.st-failed .sc-state { color: var(--danger); }
-  .stage-chip.st-blocked { border-left-color: var(--warn); }
-  .stage-chip.st-blocked .sc-state { color: var(--warn); }
-  .stage-chip.st-not_run, .stage-chip.st-disabled { border-left-color: var(--muted); }
-  .stage-chip.st-not_run .sc-state, .stage-chip.st-disabled .sc-state { color: var(--muted); }
+  .result-summary .result-detail {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 14px;
+    max-width: 76ch;
+  }
 
-  .issues-list {
-    margin: 2px 0 0;
-    padding-left: 20px;
+  .result-stat {
+    margin: 12px 0 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
     color: var(--muted);
-    font-size: 13px;
+    letter-spacing: 0.03em;
   }
 
-  .issues-list li { margin-bottom: 4px; }
+  .result-actions { margin-top: 16px; }
 
-  /* Result grids */
+  .result-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    margin-top: 18px;
+    border: 1px solid var(--border);
+  }
+  .result-banner.ok { background: var(--ok-soft); border-color: rgba(58, 175, 111, 0.45); }
+  .result-banner.warn { background: var(--warn-soft); border-color: rgba(224, 164, 60, 0.45); }
+  .result-banner.danger { background: var(--danger-soft); border-color: rgba(236, 95, 91, 0.45); }
+
+  .result-banner .rb-icon { width: 32px; height: 32px; flex: 0 0 auto; }
+  .result-banner .rb-title { font-weight: 700; font-size: 14.5px; margin: 0 0 2px; }
+  .result-banner .rb-text { margin: 0; color: var(--text-dim); font-size: 12.5px; }
+
+  /* ---------- Evidence ---------- */
+  .evidence-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
+    gap: 14px;
+    margin-bottom: 26px;
+  }
+
+  .ev-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .ev-top {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--muted);
+  }
+  .ev-top svg { width: 16px; height: 16px; }
+  .ev-label { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+
+  .ev-value {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    word-break: break-all;
+    line-height: 1.3;
+  }
+
+  .ev-sub {
+    font-size: 12px;
+    color: var(--muted);
+    word-break: break-word;
+  }
+
+  .ev-value .hash-abbrev {
+    font-family: var(--font-mono);
+    font-size: 14.5px;
+    font-weight: 600;
+  }
+
+  /* ---------- Result cards ---------- */
+  .r-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+
+  .r-card > summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 20px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .r-card > summary::-webkit-details-marker { display: none; }
+
+  .r-card > summary:hover { background: var(--surface-2); }
+
+  .rc-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14.5px;
+    font-weight: 700;
+    min-width: 0;
+  }
+  .rc-title svg { width: 18px; height: 18px; color: var(--muted); flex: 0 0 auto; }
+
+  .rc-caret {
+    color: var(--muted);
+    font-size: 11px;
+    transition: transform 0.14s ease;
+    flex: 0 0 auto;
+  }
+  .r-card[open] > summary .rc-caret { transform: rotate(90deg); }
+
+  .r-card .rc-body { padding: 4px 20px 20px; }
+
+  .state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 11px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    background: var(--surface-2);
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .state-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .state-pill[data-state="complete"] { color: var(--ok); border-color: rgba(58, 175, 111, 0.45); background: var(--ok-soft); }
+  .state-pill[data-state="failed"] { color: var(--danger); border-color: rgba(236, 95, 91, 0.45); background: var(--danger-soft); }
+  .state-pill[data-state="blocked"] { color: var(--warn); border-color: rgba(224, 164, 60, 0.45); background: var(--warn-soft); }
+
+  .note {
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    border: 1px solid var(--border-soft);
+    background: var(--surface-2);
+    color: var(--text-dim);
+  }
+  .note.ok { border-color: rgba(58, 175, 111, 0.45); background: var(--ok-soft); color: var(--text); }
+  .note.warn { border-color: rgba(224, 164, 60, 0.45); background: var(--warn-soft); color: var(--text); }
+  .note.danger { border-color: rgba(236, 95, 91, 0.45); background: var(--danger-soft); color: var(--text); }
+  .note p { margin: 0; }
+
   .kv {
     display: grid;
     grid-template-columns: minmax(150px, 30%) 1fr;
-    gap: 8px 16px;
+    gap: 9px 18px;
     font-size: 13px;
   }
 
   .kv .k { color: var(--muted); }
 
-  .kv .v { font-family: var(--mono); font-size: 12.5px; word-break: break-all; min-width: 0; }
-
-  .kv .v.long { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-
-  .badge {
-    display: inline-block;
-    padding: 3px 12px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
-  .badge-ok { background: var(--ok-soft); color: var(--ok); }
-  .badge-warn { background: var(--warn-soft); color: var(--warn); }
-  .badge-danger { background: var(--danger-soft); color: var(--danger); }
-  .badge-neutral { background: var(--neutral-soft); color: var(--muted); }
-
-  .note {
-    border-radius: 8px;
-    padding: 12px 16px;
-    margin-bottom: 10px;
-    font-size: 13px;
-    border: 1px solid var(--border-soft);
-    background: var(--surface-2);
-  }
-
-  .note.danger { border-color: var(--danger); background: var(--danger-soft); }
-  .note.warn { border-color: var(--warn); background: var(--warn-soft); }
-  .note.ok { border-color: var(--ok); background: var(--ok-soft); }
-  .note.muted-only { background: transparent; color: var(--muted); }
-
-  .result-item { margin-bottom: 12px; }
-  .result-item:last-child { margin-bottom: 0; }
-
-  .ri-label { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
-
-  .ri-url {
-    font-family: var(--mono);
+  .kv .v {
+    font-family: var(--font-mono);
     font-size: 12.5px;
     word-break: break-all;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .kv .v.wrap { font-family: var(--sans); font-size: 13px; }
+
+  .kv .v.long { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+
+  .count-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+
+  .count-pill {
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 5px 11px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .count-pill b { color: var(--text); font-family: var(--font-mono); }
+  .count-pill .ev-label { color: var(--muted); font-family: var(--font-sans); font-size: 10.5px; letter-spacing: 0.06em; margin-right: 5px; text-transform: uppercase; }
+
+  .ri-label { font-size: 12.5px; font-weight: 600; margin: 0 0 8px; color: var(--text-dim); letter-spacing: 0.02em; }
+
+  .result-item { margin-bottom: 14px; }
+  .result-item:last-child { margin-bottom: 0; }
+
+  .ri-url {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    word-break: break-all;
+    overflow-wrap: anywhere;
     color: var(--accent);
     text-decoration: none;
   }
-
   .ri-url:hover { text-decoration: underline; }
 
-  .ri-body { margin: 0; font-size: 13px; color: var(--text); }
+  .ri-body { margin: 0 0 4px; font-size: 13px; color: var(--text); }
 
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
@@ -408,201 +800,314 @@
     padding: 3px 10px;
     font-size: 12px;
     color: var(--text);
+    overflow-wrap: anywhere;
   }
-
   .chip .pct { color: var(--muted); }
 
+  .placeholder { color: var(--muted); font-size: 13px; margin: 0; }
+  .mt { margin-top: 12px; }
+  .mb { margin-bottom: 10px; }
+
   .hash-hero {
-    font-family: var(--mono);
-    font-size: 15px;
+    font-family: var(--font-mono);
+    font-size: 14.5px;
     background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
     padding: 14px 16px;
     word-break: break-all;
+    overflow-wrap: anywhere;
     user-select: all;
   }
 
-  .placeholder { color: var(--muted); font-size: 13px; margin: 0; }
-
-  .count-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
-
-  .count-pill {
+  .bbox-illustration {
+    position: relative;
     border: 1px solid var(--border);
-    background: var(--surface-2);
-    border-radius: 8px;
-    padding: 6px 12px;
-    font-size: 12.5px;
-    color: var(--muted);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: #05080d;
+    margin-bottom: 14px;
+    max-width: 340px;
+  }
+  .bbox-illustration img { display: block; width: 100%; height: auto; }
+  .bbox-box {
+    position: absolute;
+    border: 2px solid var(--ok);
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 12px rgba(58, 175, 111, 0.35);
   }
 
-  .count-pill b { color: var(--text); font-family: var(--mono); }
-
-  #evidence-row { display: flex; flex-wrap: wrap; gap: 10px; }
-
-  .count-pill .ev-label {
-    color: var(--muted);
-    font-family: var(--sans);
-    font-size: 11px;
-    letter-spacing: 0.05em;
-    margin-right: 5px;
+  .tx-prominent {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--ok-soft);
+    border: 1px solid rgba(58, 175, 111, 0.4);
+    padding: 12px 16px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 14px;
   }
+  .tx-prominent .tx-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ok); }
+  .tx-prominent .tx-hash { font-family: var(--font-mono); font-size: 13px; word-break: break-all; }
 
-  .mt { margin-top: 10px; }
-  .mb { margin-bottom: 10px; }
+  .chain-cta { margin-top: 4px; }
 
+  /* ---------- API error ---------- */
+  .error-card { margin-bottom: 26px; }
+  .error-card h2 { margin: 0 0 6px; font-size: 15px; }
+  .error-card .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+  /* ---------- Footer ---------- */
   footer.site {
-    margin-top: 28px;
+    margin-top: 40px;
+    padding: 22px 0 34px;
     text-align: center;
     color: var(--muted);
     font-size: 12px;
+    border-top: 1px solid var(--border-soft);
   }
 
   .hidden { display: none !important; }
 
-  a { color: var(--accent); }
-
   [role="status"] { outline: none; }
 
-  @media (max-width: 620px) {
-    body { padding: 20px 14px 32px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    html:focus-within { scroll-behavior: auto; }
+  }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; gap: 22px; padding: 26px 0 22px; }
+    .workflow-row { grid-template-columns: repeat(2, 1fr); row-gap: 18px; }
+    .workflow-row::before { display: none; }
+    .wstep { flex-direction: row; justify-content: flex-start; text-align: left; gap: 10px; }
+    .ws-node { position: static; }
+    .ws-name { margin-top: 0; }
+  }
+
+  @media (max-width: 640px) {
+    .shell { padding: 0 16px; }
+    .header-inner { height: 58px; }
+    .brand-sub { display: none; }
+    .header-status .status-badge.server { display: none; }
     .kv { grid-template-columns: 1fr; gap: 2px 0; }
-    .preview-row { flex-direction: column; align-items: flex-start; }
-    .stage-strip { grid-template-columns: repeat(2, 1fr); }
+    .kv .k { margin-top: 6px; }
+    .hero h1 { font-size: 24px; }
+    .workflow-row { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
-<div class="shell">
+<a class="skip-link" href="#main">Skip to content</a>
 
-  <header class="site">
-    <h1>FACE ID <span class="accent">VERIFICATION</span></h1>
-    <p>Verify an image through face representation, genuine reverse-image discovery, metadata extraction, and optional blockchain anchoring.</p>
-  </header>
+<header class="site-header">
+  <div class="shell header-inner">
+    <div class="brand">
+      <span class="logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l7 3v5c0 4.6-3 8.2-7 10-4-1.8-7-5.4-7-10V6z"></path>
+          <path d="M8.8 11.6l2.2 2.2 4.2-4.4"></path>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">FACE ID <span class="accent">VERIFICATION</span></span>
+        <span class="brand-sub">AI-Powered Authenticity &amp; Provenance</span>
+      </span>
+    </div>
+    <div class="header-status">
+      <span class="status-badge network"><span class="dot" aria-hidden="true"></span>SEPOLIA TESTNET</span>
+      <span id="server-status" class="status-badge server" data-alive="checking"><span class="dot" aria-hidden="true"></span><span id="server-status-text">Checking</span></span>
+    </div>
+  </div>
+</header>
 
-  <!-- Upload -->
-  <section id="upload-card" class="card" aria-labelledby="upload-heading">
-    <h2 id="upload-heading">Image</h2>
+<main id="main" class="shell">
 
-    <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Upload an image. Drag and drop, or press Enter to browse.">
-      <p class="dz-title">Drop an image here or click to browse</p>
-      <p class="dz-sub">Supported formats: JPG, PNG, WebP &middot; up to 10 MB</p>
-      <input id="file-input" type="file" accept="image/jpeg,image/png,image/webp" class="hidden">
+  <!-- ======= Hero / upload ======= -->
+  <section class="hero" aria-labelledby="hero-heading">
+    <div class="hero-copy">
+      <p class="eyebrow">Digital Identity Verification</p>
+      <h1 id="hero-heading">Verify an image</h1>
+      <p class="hero-sub">Upload an image to detect faces, discover matching web sources, extract metadata, and create a tamper-evident verification record.</p>
+      <ul class="trust-indicators" aria-label="Pipeline capabilities">
+        <li>Face Analysis</li>
+        <li>Web Discovery</li>
+        <li>Metadata</li>
+        <li>SHA-256</li>
+        <li>Ethereum Sepolia</li>
+      </ul>
     </div>
 
-    <div id="preview-row" class="preview-row hidden">
-      <img id="preview-thumb" class="preview-thumb" alt="Selected image preview">
-      <div class="preview-meta">
-        <div class="name" id="preview-name"></div>
-        <div id="preview-size"></div>
+    <div class="upload-panel">
+      <div class="panel panel-pad">
+        <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Upload an image. Drag and drop, or press Enter to browse.">
+          <span class="dz-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 16V4"></path>
+              <path d="M7 8l5-4 5 4"></path>
+              <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"></path>
+            </svg>
+          </span>
+          <p class="dz-title">Drop an image here</p>
+          <p class="dz-or">or</p>
+          <button id="choose-btn" class="btn btn-primary" type="button">Choose Image</button>
+          <p class="dz-meta">JPG &middot; PNG &middot; WebP &mdash; up to 10 MB</p>
+          <input id="file-input" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" aria-label="Choose an image file">
+        </div>
+
+        <div id="preview-panel" class="hidden">
+          <div class="preview-head">
+            <img id="preview-thumb" class="preview-thumb" alt="Selected image preview">
+            <div class="preview-meta">
+              <div class="name" id="preview-name"></div>
+              <div class="meta-line" id="preview-meta-line"></div>
+            </div>
+            <div class="preview-actions">
+              <button id="remove-file" class="remove-btn" type="button" aria-label="Remove selected image" title="Remove">&times;</button>
+            </div>
+          </div>
+          <button id="change-file" class="btn btn-ghost mt" type="button" style="width:100%">Change image</button>
+          <button id="verify-btn" class="btn btn-primary btn-verify" type="button" disabled>Verify Image</button>
+        </div>
+
+        <details class="advanced">
+          <summary>Blockchain options</summary>
+          <div class="adv-body">
+            <div class="field">
+              <label for="enable-blockchain"><input id="enable-blockchain" type="checkbox"> Record verification on Sepolia testnet</label>
+              <p class="hint">Requires SEPOLIA_RPC_URL and SEPOLIA_PRIVATE_KEY on the server, plus a deployed contract address.</p>
+            </div>
+            <div class="field">
+              <label for="contract-address">Contract address</label>
+              <input id="contract-address" type="text" placeholder="0x..." spellcheck="false" autocomplete="off">
+              <p class="hint">Checksummed address of the deployed VerificationRegistry contract.</p>
+            </div>
+          </div>
+        </details>
+
+        <p id="upload-error" class="upload-error" role="alert"></p>
       </div>
     </div>
-
-    <div class="actions">
-      <button id="verify-btn" class="btn btn-primary" disabled>Verify Image</button>
-    </div>
-
-    <p id="upload-error" class="err-msg" role="alert"></p>
-
-    <details class="advanced">
-      <summary>Blockchain options</summary>
-      <div class="adv-body">
-        <div class="field">
-          <label><input id="enable-blockchain" type="checkbox"> Record verification on-chain (Sepolia)</label>
-          <p class="hint">Requires SEPOLIA_RPC_URL and SEPOLIA_PRIVATE_KEY on the server, plus a deployed VerificationRegistry contract address.</p>
-        </div>
-        <div class="field">
-          <label for="contract-address">Contract address</label>
-          <input id="contract-address" type="text" placeholder="0x..." spellcheck="false" autocomplete="off">
-          <p class="hint">Checksummed address of the deployed VerificationRegistry contract.</p>
-        </div>
-      </div>
-    </details>
   </section>
 
-  <!-- Processing -->
-  <section id="processing" class="card hidden" aria-live="polite" aria-busy="true">
-    <div class="spinner"></div>
-    <p class="proc-title">Verification in progress</p>
-    <p class="proc-sub">This may take up to a minute.</p>
-    <ol class="stages">
-      <li>Face detection &amp; representation</li>
-      <li>Genuine reverse image search</li>
-      <li>Post metadata extraction</li>
-      <li>Blockchain recording (if enabled)</li>
-    </ol>
+  <!-- ======= Workflow ======= -->
+  <section id="workflow-section" class="workflow panel panel-pad hidden" aria-labelledby="workflow-heading">
+    <div class="workflow-head">
+      <h2 id="workflow-heading" class="wf-title">Verification pipeline</h2>
+      <div id="workflow-loading" class="workflow-loading hidden" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="workflow-loading-text">Verification in progress...</span>
+      </div>
+    </div>
+    <div id="workflow-row" class="workflow-row"></div>
   </section>
 
-  <!-- Results -->
-  <div id="results" class="hidden">
+  <!-- ======= Result summary ======= -->
+  <div id="result-area" class="result-area hidden">
 
-    <section id="summary-card" class="card" aria-labelledby="summary-heading">
-      <h2 id="summary-heading">Verification summary</h2>
-
-      <div id="status-banner" class="banner" role="status" aria-live="polite">
-        <p class="b-title" id="status-title"></p>
-        <p class="b-detail" id="status-detail"></p>
+    <section class="result-summary" aria-labelledby="result-title">
+      <p class="eyebrow">Verification Result</p>
+      <h2 id="result-title" role="status" aria-live="polite"></h2>
+      <p id="result-detail" class="result-detail"></p>
+      <p id="result-stat" class="result-stat"></p>
+      <div class="result-actions">
+        <button id="new-verification" class="btn btn-ghost" type="button">Run another verification</button>
       </div>
-
-      <div id="stage-strip" class="stage-strip"></div>
-      <div id="evidence-row" class="hidden"></div>
-      <div id="summary-issues" class="hidden"></div>
     </section>
 
-    <section id="face-card" class="card" aria-labelledby="face-heading">
-      <div class="card-head">
-        <h2 id="face-heading">Face Detection</h2>
-        <span id="face-chip" class="badge badge-neutral">-</span>
+    <div id="result-banner" class="result-banner hidden">
+      <span class="rb-icon" aria-hidden="true" id="result-banner-icon"></span>
+      <div>
+        <p class="rb-title" id="result-banner-title"></p>
+        <p class="rb-text" id="result-banner-text"></p>
       </div>
-      <div id="face-body"></div>
+    </div>
+
+    <div id="evidence-grid" class="evidence-grid"></div>
+  </div>
+
+  <!-- ======= Detail sections ======= -->
+  <div id="detail-region" class="hidden">
+
+    <section class="r-card" id="face-card">
+      <summary>
+        <span class="rc-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-3.6 3.6-5.5 8-5.5s8 1.9 8 5.5"></path></svg>
+          Face Detection
+        </span>
+        <span class="state-pill" id="face-chip" data-state="pending"><span class="dot" aria-hidden="true"></span>Pending</span>
+        <span class="rc-caret" aria-hidden="true">&#9654;</span>
+      </summary>
+      <div class="rc-body" id="face-body"></div>
     </section>
 
-    <section id="search-card" class="card" aria-labelledby="search-heading">
-      <div class="card-head">
-        <h2 id="search-heading">Reverse Image Search</h2>
-        <span id="search-chip" class="badge badge-neutral">-</span>
-      </div>
-      <div id="search-body"></div>
+    <section class="r-card" id="search-card">
+      <summary>
+        <span class="rc-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M20 20l-4.2-4.2"></path></svg>
+          Reverse Image Search
+        </span>
+        <span class="state-pill" id="search-chip" data-state="pending"><span class="dot" aria-hidden="true"></span>Pending</span>
+        <span class="rc-caret" aria-hidden="true">&#9654;</span>
+      </summary>
+      <div class="rc-body" id="search-body"></div>
     </section>
 
-    <section id="meta-card" class="card" aria-labelledby="meta-heading">
-      <div class="card-head">
-        <h2 id="meta-heading">Metadata</h2>
-        <span id="meta-chip" class="badge badge-neutral">-</span>
-      </div>
-      <div id="meta-body"></div>
+    <section class="r-card" id="meta-card">
+      <summary>
+        <span class="rc-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"></path><path d="M14 3v4h4"></path><path d="M10 12h5M10 16h5"></path></svg>
+          Metadata
+        </span>
+        <span class="state-pill" id="meta-chip" data-state="pending"><span class="dot" aria-hidden="true"></span>Pending</span>
+        <span class="rc-caret" aria-hidden="true">&#9654;</span>
+      </summary>
+      <div class="rc-body" id="meta-body"></div>
     </section>
 
-    <section id="hash-card" class="card" aria-labelledby="hash-heading">
-      <div class="card-head">
-        <h2 id="hash-heading">Verification Hash</h2>
-        <span id="hash-chip" class="badge badge-neutral">-</span>
-      </div>
-      <div id="hash-body"></div>
+    <section class="r-card" id="hash-card">
+      <summary>
+        <span class="rc-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3v18M14 3v18"></path></svg>
+          Verification Hash
+        </span>
+        <span class="state-pill" id="hash-chip" data-state="pending"><span class="dot" aria-hidden="true"></span>Pending</span>
+        <span class="rc-caret" aria-hidden="true">&#9654;</span>
+      </summary>
+      <div class="rc-body" id="hash-body"></div>
     </section>
 
-    <section id="chain-card" class="card" aria-labelledby="chain-heading">
-      <div class="card-head">
-        <h2 id="chain-heading">Blockchain</h2>
-        <span id="chain-chip" class="badge badge-neutral">-</span>
-      </div>
-      <div id="chain-body"></div>
+    <section class="r-card" id="chain-card">
+      <summary>
+        <span class="rc-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6h5a5 5 0 010 10h-2"></path><path d="M14 18H9a5 5 0 010-10h2"></path><path d="M9 12h6"></path></svg>
+          Blockchain
+        </span>
+        <span class="state-pill" id="chain-chip" data-state="pending"><span class="dot" aria-hidden="true"></span>Pending</span>
+        <span class="rc-caret" aria-hidden="true">&#9654;</span>
+      </summary>
+      <div class="rc-body" id="chain-body"></div>
     </section>
 
   </div>
 
-  <!-- API-level error -->
-  <section id="error-card" class="card hidden" role="alert" aria-live="assertive">
-    <h2>Request failed</h2>
+  <!-- ======= API error ======= -->
+  <section id="error-card" class="error-card panel panel-pad hidden" role="alert" aria-live="assertive">
+    <h2 class="eyebrow">Request failed</h2>
     <p id="error-text" class="placeholder"></p>
-    <p class="hint" style="color:var(--muted);font-size:12px;margin-top:8px">This usually means the server lacks external-service credentials. Check the server logs for details.</p>
+    <p class="hint">This usually means the server lacks external-service credentials. Check the server logs for details.</p>
   </section>
 
-  <footer class="site">
-    <p>Face ID Verification &middot; Reverse image search via Google Cloud Vision &middot; On-chain anchoring on Sepolia testnet (chain ID 11155111)</p>
-  </footer>
+</main>
 
-</div>
+<footer class="site">
+  <p>Face ID Verification &middot; Reverse image search via Google Cloud Vision &middot; Tamper-evident anchoring on Ethereum Sepolia (chain ID 11155111)</p>
+</footer>
 
 <script>
 (function () {
@@ -611,34 +1116,78 @@
   var MAX_UPLOAD = 10 * 1024 * 1024;
   var SUPPORTED_EXT = ["jpg", "jpeg", "png", "webp"];
 
-  var BADGE_BY_STATE = {
-    complete: "badge-ok",
-    failed: "badge-danger",
-    blocked: "badge-warn",
-    not_run: "badge-neutral",
-    disabled: "badge-neutral"
+  var STATE_LABELS = {
+    complete: "COMPLETE",
+    failed: "FAILED",
+    blocked: "BLOCKED",
+    not_run: "NOT RUN",
+    disabled: "DISABLED",
+    pending: "PENDING"
   };
+
+  var STAGE_ORDER = [
+    { name: "Face Detection", desc: "Detect exactly one face and embed it" },
+    { name: "Reverse Image Search", desc: "Discover matching public web pages" },
+    { name: "Metadata Extraction", desc: "Extract page and post metadata" },
+    { name: "Verification Hash", desc: "Fingerprint the evidence payload" },
+    { name: "Blockchain", desc: "Anchor the fingerprint on Sepolia" }
+  ];
+
+  var STAGE_ICONS = {
+    "Face Detection": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-3.6 3.6-5.5 8-5.5s8 1.9 8 5.5"></path></svg>',
+    "Reverse Image Search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M20 20l-4.2-4.2"></path></svg>',
+    "Metadata Extraction": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"></path><path d="M14 3v4h4"></path><path d="M10 12h5M10 16h5"></path></svg>',
+    "Verification Hash": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3v18M14 3v18"></path></svg>',
+    "Blockchain": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6h5a5 5 0 010 10h-2"></path><path d="M14 18H9a5 5 0 010-10h2"></path><path d="M9 12h6"></path></svg>'
+  };
+
+  var EVIDENCE_ICONS = {
+    "Face": STAGE_ICONS["Face Detection"],
+    "Web Matches": STAGE_ICONS["Reverse Image Search"],
+    "Metadata": STAGE_ICONS["Metadata Extraction"],
+    "Verification Hash": STAGE_ICONS["Verification Hash"],
+    "Blockchain": STAGE_ICONS["Blockchain"]
+  };
+
+  var ICON_CIRCLE_OK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8.5 12.2l2.3 2.3 4.6-4.8"></path></svg>';
+  var ICON_TRIANGLE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17.5v.01"></path></svg>';
 
   var dropzone = document.getElementById("dropzone");
   var fileInput = document.getElementById("file-input");
-  var previewRow = document.getElementById("preview-row");
+  var chooseBtn = document.getElementById("choose-btn");
+  var previewPanel = document.getElementById("preview-panel");
   var previewThumb = document.getElementById("preview-thumb");
   var previewName = document.getElementById("preview-name");
-  var previewSize = document.getElementById("preview-size");
+  var previewMetaLine = document.getElementById("preview-meta-line");
+  var removeFileBtn = document.getElementById("remove-file");
+  var changeFileBtn = document.getElementById("change-file");
   var verifyBtn = document.getElementById("verify-btn");
   var uploadError = document.getElementById("upload-error");
   var enableBlockchain = document.getElementById("enable-blockchain");
   var contractAddress = document.getElementById("contract-address");
-  var processing = document.getElementById("processing");
-  var statusBanner = document.getElementById("status-banner");
-  var statusTitle = document.getElementById("status-title");
-  var statusDetail = document.getElementById("status-detail");
-  var results = document.getElementById("results");
+
+  var workflowSection = document.getElementById("workflow-section");
+  var workflowLoading = document.getElementById("workflow-loading");
+  var workflowRow = document.getElementById("workflow-row");
+
+  var resultArea = document.getElementById("result-area");
+  var resultTitle = document.getElementById("result-title");
+  var resultDetail = document.getElementById("result-detail");
+  var resultStat = document.getElementById("result-stat");
+  var resultBanner = document.getElementById("result-banner");
+  var resultBannerTitle = document.getElementById("result-banner-title");
+  var resultBannerText = document.getElementById("result-banner-text");
+  var resultBannerIcon = document.getElementById("result-banner-icon");
+
+  var detailRegion = document.getElementById("detail-region");
   var errorCard = document.getElementById("error-card");
   var errorText = document.getElementById("error-text");
 
   var selectedFile = null;
   var objectUrl = null;
+  var previewDim = { w: 0, h: 0 };
+
+  /* ---------- Utilities ---------- */
 
   function esc(v) {
     if (v === null || v === undefined) return "";
@@ -653,6 +1202,50 @@
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   }
 
+  function copyBtn(text) {
+    return '<button type="button" class="btn-copy" data-copy="' + esc(text) + '">Copy</button>';
+  }
+
+  function statePill(state, label) {
+    var name = state || "pending";
+    return '<span class="state-pill" data-state="' + esc(name) + '"><span class="dot" aria-hidden="true"></span>' +
+           esc(label || STATE_LABELS[name] || name) + '</span>';
+  }
+
+  function note(state, text) {
+    var cls = state === "complete" ? " ok" : (state === "failed" ? " danger" : (state === "blocked" ? " warn" : ""));
+    return '<div class="note' + cls + '"><p>' + text + '</p></div>';
+  }
+
+  function setPill(id, state, label) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.dataset.state = state || "pending";
+    el.innerHTML = '<span class="dot" aria-hidden="true"></span>' + esc(label || STATE_LABELS[state] || state || "Pending");
+  }
+
+  /* ---------- Server status ---------- */
+
+  function setServerStatus(state, text) {
+    var el = document.getElementById("server-status");
+    var tx = document.getElementById("server-status-text");
+    el.dataset.alive = state;
+    tx.textContent = text;
+  }
+
+  function checkServer() {
+    setServerStatus("checking", "Checking");
+    fetch("/", { cache: "no-store" })
+      .then(function (res) {
+        setServerStatus(res.ok ? "up" : "down", res.ok ? "Online" : "Offline");
+      })
+      .catch(function () {
+        setServerStatus("down", "Offline");
+      });
+  }
+
+  /* ---------- Upload ---------- */
+
   function showError(msg) {
     uploadError.textContent = msg;
     uploadError.classList.add("visible");
@@ -663,9 +1256,33 @@
     uploadError.classList.remove("visible");
   }
 
+  function readDims(file, cb) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onload = function () { cb(img.naturalWidth, img.naturalHeight); };
+      img.onerror = function () { cb(null, null); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function () { cb(null, null); };
+    reader.readAsDataURL(file);
+  }
+
+  function clearSelection() {
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+    selectedFile = null;
+    previewDim.w = 0;
+    previewDim.h = 0;
+    previewPanel.classList.add("hidden");
+    dropzone.classList.remove("hidden");
+    verifyBtn.disabled = true;
+    clearError();
+  }
+
   function acceptFile(file) {
     if (!file) return;
     clearError();
+
     var name = file.name || "image";
     var ext = name.split(".").pop().toLowerCase();
     if (SUPPORTED_EXT.indexOf(ext) === -1) {
@@ -676,22 +1293,51 @@
       showError("File exceeds the 10 MB upload limit.");
       return;
     }
+
     if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
     objectUrl = URL.createObjectURL(file);
+
     previewThumb.src = objectUrl;
     previewName.textContent = name;
-    previewSize.textContent = file.type + " \u00b7 " + humanSize(file.size);
-    previewRow.classList.remove("hidden");
-    dropzone.classList.add("has-file");
+
+    readDims(file, function (w, h) {
+      previewDim.w = w || 0;
+      previewDim.h = h || 0;
+      renderPreviewMetaLine();
+    });
+
+    renderPreviewMetaLine();
+    previewPanel.classList.remove("hidden");
+    dropzone.classList.add("hidden");
     selectedFile = file;
     verifyBtn.disabled = false;
+    hideResults();
   }
 
-  dropzone.addEventListener("click", function () { fileInput.click(); });
+  function renderPreviewMetaLine() {
+    if (!selectedFile) return;
+    var parts = [selectedFile.type || "image"];
+    if (previewDim.w && previewDim.h) parts.push(previewDim.w + " \u00d7 " + previewDim.h + " px");
+    parts.push(humanSize(selectedFile.size));
+    previewMetaLine.textContent = parts.join(" \u00b7 ");
+  }
+
+  function openFileDialog() { fileInput.click(); }
+
+  dropzone.addEventListener("click", function (e) {
+    if (e.target.closest("button")) return;
+    openFileDialog();
+  });
   dropzone.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openFileDialog(); }
+  });
+  chooseBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    openFileDialog();
   });
   fileInput.addEventListener("change", function () { acceptFile(fileInput.files[0]); });
+  changeFileBtn.addEventListener("click", openFileDialog);
+  removeFileBtn.addEventListener("click", clearSelection);
 
   ["dragenter", "dragover"].forEach(function (ev) {
     dropzone.addEventListener(ev, function (e) {
@@ -707,145 +1353,308 @@
   });
   dropzone.addEventListener("drop", function (e) { acceptFile(e.dataTransfer.files[0]); });
 
-  verifyBtn.addEventListener("click", startVerify);
+  /* ---------- Loading ---------- */
 
-  function banner(kind, title, detail) {
-    statusBanner.className = "banner visible " + kind;
-    statusTitle.textContent = title;
-    statusDetail.textContent = detail || "";
-  }
+  var inFlight = false;
 
-  function copyBtn(text) {
-    return '<button type="button" class="btn-copy" data-copy="' + esc(text) + '">Copy</button>';
-  }
-
-  function badge(state, label) {
-    return '<span class="badge ' + BADGE_BY_STATE[state] + '">' + esc(label) + '</span>';
-  }
-
-  function setChip(id, state, label) {
-    var el = document.getElementById(id);
-    el.textContent = label;
-    el.className = "badge " + BADGE_BY_STATE[state];
-  }
-
-  function stageNoteHtml(stage) {
-    var cls = stage.state === "complete" ? " ok"
-      : (stage.state === "failed" ? " danger"
-      : (stage.state === "blocked" ? " warn" : ""));
-    return '<div class="note' + cls + '"><p class="ri-body"><b>' + esc(stage.label) + '.</b> ' + esc(stage.detail) + '</p></div>';
-  }
-
-  function stageChipHtml(stage) {
-    return '<div class="stage-chip st-' + esc(stage.state) + '">' +
-           '<div class="sc-name">' + esc(stage.name) + '</div>' +
-           '<div class="sc-state">' + esc(stage.label) + '</div></div>';
-  }
-
-  function stagesByName(stages) {
+  function stagesById(stages) {
     var map = {};
     (stages || []).forEach(function (s) { map[s.name] = s; });
     return map;
   }
 
-  function evidencePill(label, value) {
-    return '<span class="count-pill"><span class="ev-label">' + esc(label) + '</span><b>' + esc(value) + '</b></span>';
+  function renderWorkflow(pendingOnly) {
+    var html = "";
+    for (var i = 0; i < STAGE_ORDER.length; i++) {
+      var meta = STAGE_ORDER[i];
+      var state = "pending";
+      var label = "Pending";
+      if (!pendingOnly && pendingStages) {
+        var s = pendingStages[meta.name];
+        if (s) { state = s.state; label = s.label; }
+      }
+      html += '<div class="wstep st-' + esc(state) + '">' +
+        '<span class="ws-node">' + STAGE_ICONS[meta.name] + '</span>' +
+        '<span class="ws-name">' + esc(meta.name) + '</span>' +
+        '<span class="ws-state">' + esc(label) + '</span>' +
+        '<span class="ws-desc">' + esc(meta.desc) + '</span>' +
+        '</div>';
+    }
+    workflowRow.innerHTML = html;
+  }
+
+  var pendingStages = null;
+
+  function showLoading() {
+    inFlight = true;
+    verifyBtn.disabled = true;
+    pendingStages = null;
+    hideResults();
+    workflowSection.classList.remove("hidden");
+    renderWorkflow(true);
+    workflowLoading.classList.remove("hidden");
+  }
+
+  function stopLoading() {
+    inFlight = false;
+    workflowLoading.classList.add("hidden");
+  }
+
+  function hideResults() {
+    resultArea.classList.add("hidden");
+    detailRegion.classList.add("hidden");
+    errorCard.classList.add("hidden");
+    resultBanner.classList.add("hidden");
+    workflowSection.classList.add("hidden");
+    workflowLoading.classList.add("hidden");
+  }
+
+  /* ---------- Verify ---------- */
+
+  verifyBtn.addEventListener("click", startVerify);
+
+  function startVerify() {
+    if (!selectedFile) { showError("Select an image before verifying."); return; }
+    if (inFlight) return;
+
+    clearError();
+    showLoading();
+
+    var form = new FormData();
+    form.append("image", selectedFile);
+    form.append("enable_blockchain", enableBlockchain.checked ? "true" : "false");
+    if (enableBlockchain.checked && contractAddress.value.trim()) {
+      form.append("contract_address", contractAddress.value.trim());
+    }
+
+    fetch("/api/verify", { method: "POST", body: form })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (res.ok && data) return data;
+          throw new ServerError(res.status, data && data.detail ? data.detail : null);
+        });
+      })
+      .then(renderResults)
+      .catch(function (err) {
+        errorText.textContent =
+          (err && err.message) ? err.message : "Verification failed due to an unexpected server error.";
+        errorCard.classList.remove("hidden");
+        hideResults();
+        workflowSection.classList.add("hidden");
+      })
+      .finally(function () {
+        stopLoading();
+        verifyBtn.disabled = selectedFile ? false : true;
+      });
+  }
+
+  function ServerError(status, detail) {
+    this.message = detail || ("The server returned an error (HTTP " + status + ").");
+  }
+
+  function tryOpenDetails() {
+    document.getElementById("face-card").open = true;
+  }
+
+  function renderResults(data) {
+    var report = data.report || {};
+    var verification = data.verification || {};
+    var overall = verification.overall || { state: "failed", label: "FAILED", detail: "", issues: [] };
+    pendingStages = stagesById(verification.stages);
+
+    renderWorkflow(false);
+    stopLoading();
+    workflowSection.classList.remove("hidden");
+
+    renderSummary(verification);
+    renderEvidence(report, pendingStages);
+    renderFaceDetail(report, pendingStages["Face Detection"] || {});
+    renderSearchDetail(report, pendingStages["Reverse Image Search"] || {});
+    renderMetadataDetail(report, pendingStages["Metadata Extraction"] || {});
+    renderHashDetail(report, pendingStages["Verification Hash"] || {});
+    renderChainDetail(data, pendingStages["Blockchain"] || {});
+
+    resultArea.classList.remove("hidden");
+    detailRegion.classList.remove("hidden");
+    tryOpenDetails();
+
+    resultArea.scrollIntoView({ block: "start", behavior: "auto" });
+  }
+
+  /* ---------- Summary ---------- */
+
+  function renderSummary(verification) {
+    var overall = verification.overall || {};
+    var stages = (verification.stages || []);
+    var issues = overall.issues || [];
+
+    var anyFailed = stages.some(function (s) { return s.state === "failed"; });
+    var anyBlocked = stages.some(function (s) { return s.state === "blocked"; });
+    var completed = stages.filter(function (s) { return s.state === "complete"; }).length;
+
+    var title, bannerKind, bannerTitle, bannerText;
+    if (overall.state === "complete") {
+      title = "Verification completed";
+      bannerKind = issues.length ? "warn" : "ok";
+      bannerTitle = "Verification completed";
+      bannerText = issues.length
+        ? stages.filter(function (s) { return s.state === "failed" || s.state === "blocked"; }).map(function (s) { return s.name + ": " + s.detail; }).join(" ")
+        : "The verification pipeline finished without unresolved issues.";
+    } else if (anyBlocked && !anyFailed) {
+      title = "Verification blocked";
+      bannerKind = "warn";
+      bannerTitle = "Verification blocked by an external dependency";
+      bannerText = stages.filter(function (s) { return s.state === "blocked"; }).map(function (s) { return s.detail; }).join(" ");
+    } else {
+      title = "Verification not completed";
+      bannerKind = "danger";
+      bannerTitle = "Verification did not complete";
+      bannerText = stages.filter(function (s) { return s.state === "failed" || s.state === "blocked"; }).map(function (s) { return s.name + ": " + s.detail; }).join(" ");
+    }
+
+    resultTitle.textContent = title;
+    resultDetail.textContent = overall.detail || "";
+    resultStat.textContent = completed + " of " + stages.length + " pipeline stages completed" +
+      (anyBlocked ? " \u00b7 " + stages.filter(function (s) { return s.state === "blocked"; }).length + " blocked" : "") +
+      (anyFailed ? " \u00b7 " + stages.filter(function (s) { return s.state === "failed"; }).length + " failed" : "") +
+      " \u00b7 " + stages.filter(function (s) { return s.state === "not_run"; }).length + " not run";
+
+    resultBanner.className = "result-banner " + bannerKind;
+    resultBannerTitle.textContent = bannerTitle;
+    resultBannerText.textContent = bannerText;
+    resultBannerIcon.innerHTML = (bannerKind === "warn" ? ICON_TRIANGLE : ICON_CIRCLE_OK);
+    resultBanner.classList.remove("hidden");
+  }
+
+  /* ---------- Evidence ---------- */
+
+  function evidenceCard(label, value, sub) {
+    return '<div class="ev-card">' +
+      '<div class="ev-top">' + (EVIDENCE_ICONS[label] || "") + '<span class="ev-label">' + esc(label) + '</span></div>' +
+      '<div class="ev-value">' + value + '</div>' +
+      (sub ? '<div class="ev-sub">' + sub + '</div>' : '') +
+      '</div>';
   }
 
   function renderEvidence(report, stages) {
-    var pills = [];
+    var html = "";
+
     var face = stages["Face Detection"];
     if (face && face.state === "complete" && report.faces && report.faces.length === 1) {
       var f = report.faces[0];
-      pills.push(evidencePill("Face", "1 \u00b7 " + (f.detection_confidence * 100).toFixed(1) + "% confidence"));
+      var conf = (f.detection_confidence * 100).toFixed(1) + "%";
+      html += evidenceCard("Face", "1 detected", "Detection confidence " + conf);
+    } else if (face && face.state === "failed") {
+      html += evidenceCard("Face", "Not detected", face.detail || "No usable face");
+    } else {
+      html += evidenceCard("Face", "Not run", "No face evidence");
     }
+
     var search = stages["Reverse Image Search"];
     if (search && search.state === "complete" && report.reverse_search) {
       var rs = report.reverse_search;
-      pills.push(evidencePill("Pages", rs.pages_with_matching_images.length));
-      pills.push(evidencePill(
-        "Matches",
-        rs.full_matching_images.length + " full / " + rs.partial_matching_images.length + " partial"
-      ));
+      var pageCount = rs.pages_with_matching_images.length;
+      html += evidenceCard("Web Matches", pageCount + " page" + (pageCount === 1 ? "" : "s"),
+        rs.full_matching_images.length + " full \u00b7 " + rs.partial_matching_images.length + " partial match" + (rs.full_matching_images.length + rs.partial_matching_images.length === 1 ? "" : "es"));
+    } else if (search && search.state === "blocked") {
+      html += evidenceCard("Web Matches", "Blocked", "Provider credentials unavailable");
+    } else if (search && search.state === "failed") {
+      html += evidenceCard("Web Matches", "Failed", "Search could not complete");
+    } else {
+      html += evidenceCard("Web Matches", "Not run", "Search was not executed");
     }
-    if (report.verification_hash) {
-      var h = report.verification_hash;
-      pills.push(evidencePill("Hash", h.slice(0, 12) + "\u2026" + h.slice(-6)));
+
+    var metadata = stages["Metadata Extraction"];
+    if (metadata && metadata.state === "complete") {
+      var ok = (report.metadata || []).filter(function (m) { return !m.error; }).length;
+      html += evidenceCard("Metadata", "Extracted", ok + " source" + (ok === 1 ? "" : "s"));
+    } else if (metadata && metadata.state === "failed") {
+      html += evidenceCard("Metadata", "Failed", "Could not extract metadata");
+    } else if (metadata && metadata.state === "not_run") {
+      html += evidenceCard("Metadata", "Not run", "Skipped after search stage");
+    } else {
+      html += evidenceCard("Metadata", "Pending", "No metadata");
     }
+
+    var hash = report.verification_hash;
+    if (hash) {
+      html += evidenceCard("Verification Hash",
+        '<span class="hash-abbrev">' + esc(abbrevHash(hash)) + '</span>',
+        "Keccak-256 fingerprint");
+    } else {
+      html += evidenceCard("Verification Hash", "Not produced", "Pipeline did not complete");
+    }
+
     var chain = stages["Blockchain"];
-    if (chain) {
-      var chainTxt = chain.label;
-      if (chain.state === "complete" && report.blockchain) {
-        chainTxt = report.blockchain.confirmed ? "CONFIRMED"
-          : (report.blockchain.transaction_hash ? "RECORDED" : chain.label);
-      }
-      pills.push(evidencePill("Blockchain", chainTxt));
+    if (chain && chain.state === "complete" && report.blockchain) {
+      var confirmed = report.blockchain.confirmed;
+      html += evidenceCard("Blockchain",
+        confirmed ? "Recorded" : "Pending receipt",
+        confirmed ? "Confirmed on Sepolia" : "Transaction submitted");
+    } else if (chain && chain.state === "blocked") {
+      html += evidenceCard("Blockchain", "Blocked", "Configuration unavailable");
+    } else if (chain && chain.state === "failed") {
+      html += evidenceCard("Blockchain", "Not recorded", "Recording failed");
+    } else if (chain && chain.state === "disabled") {
+      html += evidenceCard("Blockchain", "Not recorded", "Recording disabled");
+    } else {
+      html += evidenceCard("Blockchain", "Not run", "No on-chain record");
     }
-    var el = document.getElementById("evidence-row");
-    el.innerHTML = pills.join("");
-    el.classList.toggle("hidden", pills.length === 0);
+
+    document.getElementById("evidence-grid").innerHTML = html;
   }
 
-  function renderSummary(verification, report) {
-    var overall = verification.overall || {};
-    var issues = overall.issues || [];
-    var stageList = verification.stages || [];
-
-    var anyFailed = stageList.some(function (s) { return s.state === "failed"; });
-    var anyBlocked = stageList.some(function (s) { return s.state === "blocked"; });
-    var kind;
-    if (overall.state === "failed") {
-      kind = anyFailed ? "danger" : (anyBlocked ? "warn" : "danger");
-    } else {
-      kind = (anyFailed || anyBlocked || issues.length) ? "warn" : "ok";
-    }
-    banner(kind, overall.label, overall.detail);
-
-    document.getElementById("stage-strip").innerHTML =
-      stageList.map(stageChipHtml).join("");
-
-    renderEvidence(report || {}, stagesByName(stageList));
-
-    var issuesEl = document.getElementById("summary-issues");
-    if (issues.length) {
-      issuesEl.innerHTML = '<ul class="issues-list">' +
-        issues.map(function (i) { return "<li>" + esc(i) + "</li>"; }).join("") +
-        '</ul>';
-      issuesEl.classList.remove("hidden");
-    } else {
-      issuesEl.innerHTML = "";
-      issuesEl.classList.add("hidden");
-    }
+  function abbrevHash(h) {
+    var s = String(h);
+    if (s.length <= 18) return s;
+    return s.slice(0, 12) + "\u2026" + s.slice(-4);
   }
 
-  function renderFace(report, stage) {
-    setChip("face-chip", stage.state, stage.label);
-    var html = stageNoteHtml(stage);
-    if (stage.state === "complete" && report.faces && report.faces.length === 1) {
+  /* ---------- Detail sections ---------- */
+
+  function renderFaceDetail(report, stage) {
+    setPill("face-chip", stage.state, stage.label);
+    var html = "";
+
+    if (stage.state === "failed") {
+      html += note("failed", "<b>FAILED.</b> " + esc(stage.detail || "Face detection could not run."));
+    } else if (stage.state === "complete" && report.faces && report.faces.length === 1) {
       var f = report.faces[0];
-      html += '<div class="kv mt">';
-      html += '<div class="k">Bounding box</div><div class="v">[x0 y0 x1 y1] ' + esc(f.bounding_box.join(", ")) + '</div>';
+      if (objectUrl && f.bounding_box && f.bounding_box.length === 4 && previewDim.w && previewDim.h) {
+        var bb = f.bounding_box;
+        var left = (bb[0] / previewDim.w) * 100;
+        var top = (bb[1] / previewDim.h) * 100;
+        var bw = ((bb[2] - bb[0]) / previewDim.w) * 100;
+        var bh = ((bb[3] - bb[1]) / previewDim.h) * 100;
+        html += '<div class="bbox-illustration"><img src="' + esc(objectUrl) + '" alt="Verification input with detected face highlighted">' +
+          '<div class="bbox-box" style="left:' + left + '%;top:' + top + '%;width:' + bw + '%;height:' + bh + '%" aria-hidden="true"></div></div>';
+      }
+      html += '<div class="kv">';
+      html += '<div class="k">Face count</div><div class="v">1</div>';
       html += '<div class="k">Detection confidence</div><div class="v">' + esc((f.detection_confidence * 100).toFixed(1)) + '%</div>';
+      if (f.bounding_box) {
+        html += '<div class="k">Bounding box</div><div class="v">[x0 y0 x1 y1] ' + esc(f.bounding_box.join(", ")) + '</div>';
+      }
       html += '<div class="k">Embedding hash</div><div class="v long"><span>' + esc(f.embedding_hash) + '</span>' + copyBtn(f.embedding_hash) + '</div>';
       html += '</div>';
+      html += '<p class="placeholder mt">The face embedding itself is never exposed. Only its SHA-256 fingerprint is shown.</p>';
     } else {
-      (report.errors || []).forEach(function (e) {
-        html += '<p class="placeholder mt">' + esc(e) + '</p>';
-      });
+      html += note("neutral", esc(stage.detail || "Face detection did not produce a result."));
     }
+    (report.errors || []).forEach(function (e) {
+      html += '<p class="placeholder mt">' + esc(e) + '</p>';
+    });
+
     document.getElementById("face-body").innerHTML = html;
   }
 
-  function renderSearch(report, stage) {
-    setChip("search-chip", stage.state, stage.label);
-    var html = stageNoteHtml(stage);
+  function renderSearchDetail(report, stage) {
+    setPill("search-chip", stage.state, stage.label);
+    var html = "";
 
-    if (stage.state === "failed" || stage.state === "blocked") {
-      if (stage.state === "blocked") {
-        html += '<p class="placeholder mt">The search provider could not be reached because its credentials or billing are unavailable. Configure GOOGLE_APPLICATION_CREDENTIALS on the server and retry.</p>';
-      } else {
-        html += '<p class="placeholder mt">No public pages were checked. Verify Google Cloud Vision credentials and billing on the server.</p>';
-      }
+    if (stage.state === "blocked") {
+      html += note("warn", "<b>BLOCKED.</b> " + esc(stage.detail || "The search provider could not run."));
+      html += '<p class="placeholder">Google Cloud Vision credentials are not configured on the server. Configure GOOGLE_APPLICATION_CREDENTIALS and retry.</p>';
       if (report.reverse_search_error) {
         html += '<p class="placeholder mt">Server detail: ' + esc(report.reverse_search_error) + '</p>';
       }
@@ -853,7 +1662,23 @@
       return;
     }
 
-    if (stage.state !== "complete" || !report.reverse_search) {
+    if (stage.state === "failed") {
+      html += note("danger", "<b>FAILED.</b> " + esc(stage.detail || "The search provider returned an error."));
+      if (report.reverse_search_error) {
+        html += '<p class="placeholder mt">Server detail: ' + esc(report.reverse_search_error) + '</p>';
+      }
+      document.getElementById("search-body").innerHTML = html;
+      return;
+    }
+
+    if (stage.state === "not_run") {
+      html += note("neutral", esc(stage.detail || "The search was not executed."));
+      document.getElementById("search-body").innerHTML = html;
+      return;
+    }
+
+    if (!report.reverse_search) {
+      html += note("neutral", esc(stage.detail || "No search result was returned."));
       document.getElementById("search-body").innerHTML = html;
       return;
     }
@@ -866,16 +1691,21 @@
     var entities = rs.web_entities || [];
     var labels = rs.best_guess_labels || [];
 
-    html += '<div class="count-row mt">' +
-      '<span class="count-pill">Pages <b>' + pages.length + '</b></span>' +
-      '<span class="count-pill">Full matches <b>' + full.length + '</b></span>' +
-      '<span class="count-pill">Partial matches <b>' + partial.length + '</b></span>' +
-      '<span class="count-pill">Visually similar <b>' + similar.length + '</b></span>' +
-      '<span class="count-pill">Entities <b>' + entities.length + '</b></span>' +
+    html += '<div class="kv mb">';
+    html += '<div class="k">Provider</div><div class="v">Google Cloud Vision</div>';
+    html += '<div class="k">Search status</div><div class="v">Completed</div>';
+    html += '</div>';
+
+    html += '<div class="count-row">' +
+      '<span class="count-pill"><span class="ev-label">Pages</span><b>' + pages.length + '</b></span>' +
+      '<span class="count-pill"><span class="ev-label">Full</span><b>' + full.length + '</b></span>' +
+      '<span class="count-pill"><span class="ev-label">Partial</span><b>' + partial.length + '</b></span>' +
+      '<span class="count-pill"><span class="ev-label">Similar</span><b>' + similar.length + '</b></span>' +
+      '<span class="count-pill"><span class="ev-label">Entities</span><b>' + entities.length + '</b></span>' +
       '</div>';
 
-    if (pages.length === 0 && full.length === 0 && partial.length === 0 && similar.length === 0 && entities.length === 0 && labels.length === 0) {
-      html += '<div class="note muted-only"><p class="ri-body">No matching public pages, images, or entities were found for this image. This is a valid result — not every image has public matches.</p></div>';
+    if (pages.length === 0 && full.length === 0 && partial.length === 0 && similar.length === 0) {
+      html += note("neutral", "No matching public pages were returned. This does not prove the image is original.");
     }
 
     if (pages.length) {
@@ -896,7 +1726,7 @@
     }
 
     if (entities.length) {
-      html += '<p class="ri-label mb">Web entities (' + entities.length + ')</p><div class="chips">';
+      html += '<p class="ri-label mt mb">Web entities (' + entities.length + ')</p><div class="chips">';
       entities.forEach(function (en) {
         html += '<span class="chip">' + esc(en.description) +
                 ' <span class="pct">' + (en.score ? Math.round(en.score * 100) + "%" : "") + '</span></span>';
@@ -905,30 +1735,31 @@
     }
 
     if (labels.length) {
-      html += '<p class="ri-label mb">Best guess labels</p><div class="chips">';
+      html += '<p class="ri-label mt mb">Best guess labels</p><div class="chips">';
       labels.forEach(function (l) {
         html += '<span class="chip">' + esc(l) + '</span>';
       });
       html += '</div>';
     }
 
-    document.getElementById("search-body").innerHTML = html || "<p class=\"placeholder\">No data.</p>";
+    document.getElementById("search-body").innerHTML = html;
   }
 
-  function renderMetadata(report, stage) {
-    setChip("meta-chip", stage.state, stage.label);
-    var html = stageNoteHtml(stage);
+  function renderMetadataDetail(report, stage) {
+    setPill("meta-chip", stage.state, stage.label);
+    var html = "";
 
     if (stage.state === "not_run") {
-      html += '<p class="placeholder mt">No metadata was requested, so there is nothing to display.</p>';
-      if ((report.metadata_errors || []).length) {
-        html += '<p class="placeholder mt">Server detail: ' + esc(report.metadata_errors[0]) + '</p>';
+      html += note("neutral", "<b>NOT RUN.</b> " + esc(stage.detail || "Metadata extraction was not executed."));
+      if (report.metadata_errors && report.metadata_errors.length && report.metadata_errors[0].indexOf("skipped") !== -1) {
+        html += '<p class="placeholder">Because reverse image search did not complete, no source pages were available to extract metadata from.</p>';
       }
       document.getElementById("meta-body").innerHTML = html;
       return;
     }
 
     if (stage.state === "failed") {
+      html += note("danger", "<b>FAILED.</b> " + esc(stage.detail || "Metadata could not be extracted."));
       (report.metadata_errors || []).forEach(function (e) {
         html += '<p class="placeholder mt">' + esc(e) + '</p>';
       });
@@ -938,84 +1769,96 @@
 
     var items = report.metadata || [];
     if (!items.length) {
+      html += note("neutral", "Metadata was not run because no matching pages were available.");
       document.getElementById("meta-body").innerHTML = html;
       return;
     }
 
     items.forEach(function (m) {
       if (m.error) {
-        html += '<div class="note warn"><div class="ri-label">' + esc(m.source_url) + '</div>' +
-                '<p class="ri-body">Metadata could not be retrieved for this page.</p></div>' +
+        html += '<div class="note warn mt"><p><b>' + esc(m.source_url) + '</b></p><p class="mt">Metadata could not be extracted for this page.</p></div>' +
                 '<p class="placeholder mb">' + esc(m.error) + '</p>';
         return;
       }
       html += '<div class="result-item"><div class="kv">';
-      html += '<div class="k">Source</div><div class="v"><a class="ri-url" href="' + esc(m.source_url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.source_url) + '</a></div>';
+      html += '<div class="k">Source URL</div><div class="v"><a class="ri-url" href="' + esc(m.source_url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.source_url) + '</a></div>';
       if (m.canonical_url) {
-        html += '<div class="k">Canonical</div><div class="v"><a class="ri-url" href="' + esc(m.canonical_url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.canonical_url) + '</a></div>';
+        html += '<div class="k">Canonical URL</div><div class="v"><a class="ri-url" href="' + esc(m.canonical_url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.canonical_url) + '</a></div>';
       }
-      if (m.platform) {
-        html += '<div class="k">Platform</div><div class="v">' + esc(m.platform) + '</div>';
-      }
-      if (m.title) {
-        html += '<div class="k">Title</div><div class="v" style="font-family:var(--sans);font-size:13px">' + esc(m.title) + '</div>';
-      }
-      if (m.description) {
-        html += '<div class="k">Description</div><div class="v" style="font-family:var(--sans);font-size:13px">' + esc(m.description) + '</div>';
-      }
-      if (m.published_at) {
-        html += '<div class="k">Published</div><div class="v">' + esc(m.published_at) + '</div>';
-      }
-      if (m.modified_at) {
-        html += '<div class="k">Modified</div><div class="v">' + esc(m.modified_at) + '</div>';
-      }
-      if (m.content_type) {
-        html += '<div class="k">Content type</div><div class="v">' + esc(m.content_type) + '</div>';
-      }
+      if (m.platform) html += '<div class="k">Platform</div><div class="v wrap" style="font-family:var(--font-sans)">' + esc(m.platform) + '</div>';
+      if (m.title) html += '<div class="k">Title</div><div class="v wrap" style="font-family:var(--font-sans);font-weight:600">' + esc(m.title) + '</div>';
+      if (m.description) html += '<div class="k">Description</div><div class="v wrap" style="font-family:var(--font-sans)">' + esc(m.description) + '</div>';
+      if (m.content_type) html += '<div class="k">Content type</div><div class="v">' + esc(m.content_type) + '</div>';
+      if (m.published_at) html += '<div class="k">Published</div><div class="v">' + esc(m.published_at) + '</div>';
+      if (m.modified_at) html += '<div class="k">Modified</div><div class="v">' + esc(m.modified_at) + '</div>';
       html += '</div></div>';
     });
 
     if ((report.metadata_errors || []).length) {
-      html += '<p class="ri-label mt">Extraction warnings (' + report.metadata_errors.length + ')</p>';
+      html += '<p class="ri-label mt mb">Extraction warnings (' + report.metadata_errors.length + ')</p>';
       report.metadata_errors.forEach(function (e) { html += '<p class="placeholder mt">' + esc(e) + '</p>'; });
     }
 
     document.getElementById("meta-body").innerHTML = html;
   }
 
-  function renderHash(report, stage) {
-    setChip("hash-chip", stage.state, stage.label);
-    var body = document.getElementById("hash-body");
+  function renderHashDetail(report, stage) {
+    setPill("hash-chip", stage.state, stage.label);
+    var html = "";
     var h = report.verification_hash;
+
     if (stage.state === "complete" && h) {
-      body.innerHTML =
-        '<div class="note ok"><p class="ri-body"><b>' + esc(stage.label) + '.</b> ' + esc(stage.detail) + '</p></div>' +
-        '<div class="hash-hero mt">' + esc(h) + '</div>' +
-        '<div style="margin-top:10px">' + copyBtn(h) + '</div>' +
-        '<p class="placeholder mt">Deterministic hash of the face representation, reverse-search results, and metadata. The same image bytes always produce the same path-independent hash.</p>';
-      return;
+      html += note("ok", "<b>COMPLETE.</b> The evidence fingerprint was produced.");
+      html += '<div class="hash-hero mt">' + esc(h) + '</div>';
+      html += '<div style="margin-top:10px">' + copyBtn(h) + '</div>';
+      html += '<div class="kv mt">';
+      html += '<div class="k">Algorithm</div><div class="v">Keccak-256</div>';
+      html += '<div class="k">Input</div><div class="v wrap" style="font-family:var(--font-sans)">Canonical JSON of the verification payload: image content hash, face representation, reverse-search results, metadata.</div>';
+      html += '</div>';
+      html += '<p class="placeholder mt">This fingerprint is derived from the verification payload and can be used to verify that the recorded evidence has not been altered. Content and embedding fingerprints use the SHA-256 algorithm.</p>';
+    } else {
+      html += note("neutral", esc(stage.detail || "No verification hash was produced."));
     }
-    body.innerHTML = stageNoteHtml(stage);
-    if (!h) {
-      body.innerHTML += '<p class="placeholder mt">No verification hash was produced - the pipeline did not complete far enough.</p>';
-    }
+
+    document.getElementById("hash-body").innerHTML = html;
   }
 
-  function renderBlockchain(data, stage) {
-    setChip("chain-chip", stage.state, stage.label);
-    var report = data.report;
+  function renderChainDetail(data, stage) {
+    setPill("chain-chip", stage.state, stage.label);
+    var report = data.report || {};
     var req = data.request || {};
-    var html = '<div class="kv">';
+    var html = "";
+
+    html += '<div class="kv">';
     html += '<div class="k">Network</div><div class="v">Sepolia (chain ID ' + esc(req.chain_id != null ? req.chain_id : 11155111) + ')</div>';
     if (req.contract_address) {
-      html += '<div class="k">Contract</div><div class="v long"><span>' + esc(req.contract_address) + '</span>' + copyBtn(req.contract_address) + '</div>';
+      html += '<div class="k">Contract address</div><div class="v long"><span>' + esc(req.contract_address) + '</span>' + copyBtn(req.contract_address) + '</div>';
     }
+    html += '</div>';
 
-    if (stage.state === "complete" && report.blockchain) {
+    if (stage.state === "disabled") {
+      html += '<div class="note mt"><p><b>DISABLED.</b> Blockchain recording was disabled for this verification.</p></div>';
+    } else if (stage.state === "not_run") {
+      html += '<div class="note mt"><p><b>NOT RUN.</b> ' + esc(stage.detail || "Recording was not attempted.") + '</p></div>';
+    } else if (stage.state === "blocked") {
+      html += '<div class="note warn mt"><p><b>BLOCKED.</b> Blockchain recording is blocked because the required configuration is unavailable.</p></div>';
+      if (report.blockchain_error) {
+        html += '<p class="placeholder mt">Server detail: ' + esc(report.blockchain_error) + '</p>';
+      }
+    } else if (stage.state === "failed") {
+      html += '<div class="note danger mt"><p><b>FAILED.</b> ' + esc(stage.detail || "On-chain recording failed.") + '</p></div>';
+      if (report.blockchain_error) {
+        html += '<p class="placeholder mt">Server detail: ' + esc(report.blockchain_error) + '</p>';
+      }
+    } else if (stage.state === "complete" && report.blockchain) {
       var bc = report.blockchain;
-      html += '<div class="k">Record status</div><div class="v">' +
-              (bc.duplicate ? badge("ok", "Already recorded") :
-               (bc.confirmed ? badge("ok", "Confirmed") : badge("warn", "Confirmation pending"))) +
+      if (bc.transaction_hash) {
+        html += '<div class="tx-prominent"><span class="tx-label">Recorded on Sepolia</span><span class="tx-hash">' + esc(bc.transaction_hash) + '</span>' + copyBtn(bc.transaction_hash) + '</div>';
+      }
+      html += '<div class="kv">';
+      html += '<div class="k">Confirmation</div><div class="v">' +
+              (bc.duplicate ? statePill("complete", "Already recorded") :
+               (bc.confirmed ? statePill("ok", "Confirmed") : statePill("blocked", "Pending confirmation"))) +
               '</div>';
       html += '<div class="k">Recorded hash</div><div class="v long"><span>' + esc(bc.verification_hash) + '</span>' + copyBtn(bc.verification_hash) + '</div>';
       if (bc.transaction_hash) {
@@ -1024,99 +1867,35 @@
       if (bc.block_number != null) {
         html += '<div class="k">Block number</div><div class="v">' + esc(bc.block_number) + '</div>';
       }
-    }
-    html += '</div>';
-
-    if (stage.state === "disabled") {
-      html += '<div class="note mt"><p class="ri-body"><b>DISABLED.</b> ' + esc(stage.detail) + '</p></div>';
-    } else if (stage.state === "not_run") {
-      html += '<div class="note mt"><p class="ri-body"><b>NOT RUN.</b> ' + esc(stage.detail) + '</p></div>';
-    } else if (stage.state === "blocked") {
-      var err = report.blockchain_error || "";
-      html += '<div class="note warn mt"><p class="ri-body"><b>BLOCKED.</b> ' + esc(stage.detail) + '</p></div>';
-      if (err) {
-        html += '<p class="placeholder mt">Server detail: ' + esc(err) + '</p>';
-      }
-    } else if (stage.state === "failed") {
-      var err = report.blockchain_error || "";
-      html += '<div class="note danger mt"><p class="ri-body"><b>FAILED.</b> ' + esc(stage.detail) + '</p></div>';
-      html += '<p class="placeholder mt">' + esc(err) + '</p>';
-    } else if (stage.state === "complete" && report.blockchain) {
-      html += '<div class="note ok mt"><p class="ri-body"><b>' + esc(stage.label) + '.</b> ' + esc(stage.detail) + '</p></div>';
-      if (report.blockchain.explorer_url && report.blockchain.confirmed) {
-        html += '<div class="mt"><a class="ri-url" href="' + esc(report.blockchain.explorer_url) + '" target="_blank" rel="noopener noreferrer">View transaction on Sepolia Etherscan &rarr;</a></div>';
+      html += '</div>';
+      if (bc.explorer_url && bc.confirmed) {
+        html += '<div class="chain-cta"><a class="ri-url" href="' + esc(bc.explorer_url) + '" target="_blank" rel="noopener noreferrer">View transaction on Sepolia Etherscan &rarr;</a></div>';
       }
     }
 
     document.getElementById("chain-body").innerHTML = html;
   }
 
-  function renderResults(data) {
-    var report = data.report;
-    var verification = data.verification || {};
-    var stages = stagesByName(verification.stages);
+  /* ---------- New verification / reset ---------- */
 
-    renderSummary(verification, report);
-    renderFace(report, stages["Face Detection"]);
-    renderSearch(report, stages["Reverse Image Search"]);
-    renderMetadata(report, stages["Metadata"]);
-    renderHash(report, stages["Verification Hash"]);
-    renderBlockchain(data, stages["Blockchain"]);
+  document.getElementById("new-verification").addEventListener("click", function () {
+    hideResults();
+    workflowSection.classList.add("hidden");
+    window.scrollTo({ top: 0, behavior: "auto" });
+  });
 
-    results.classList.remove("hidden");
-  }
-
-  function showProcessing(on) {
-    if (on) {
-      processing.classList.remove("hidden");
-      results.classList.add("hidden");
-      statusBanner.classList.remove("visible");
-      errorCard.classList.add("hidden");
-    } else {
-      processing.classList.add("hidden");
-    }
-  }
-
-  async function startVerify() {
-    if (!selectedFile) { showError("Select an image before verifying."); return; }
-    clearError();
-    verifyBtn.disabled = true;
-    showProcessing(true);
-
-    var form = new FormData();
-    form.append("image", selectedFile);
-    form.append("enable_blockchain", enableBlockchain.checked ? "true" : "false");
-    if (enableBlockchain.checked && contractAddress.value.trim()) {
-      form.append("contract_address", contractAddress.value.trim());
-    }
-
-    try {
-      var res = await fetch("/api/verify", { method: "POST", body: form });
-      var data = null;
-      try { data = await res.json(); } catch (e) { data = null; }
-      if (res.ok && data) {
-        renderResults(data);
-      } else {
-        errorText.textContent = (data && data.detail) ? data.detail
-          : ("The server returned an error (HTTP " + res.status + ").");
-        errorCard.classList.remove("hidden");
-      }
-    } catch (e) {
-      errorText.textContent = "Could not reach the server. Is the web interface running?";
-      errorCard.classList.remove("hidden");
-    } finally {
-      showProcessing(false);
-      verifyBtn.disabled = selectedFile ? false : true;
-    }
-  }
+  /* ---------- Copy handling ---------- */
 
   document.addEventListener("click", function (e) {
     var btn = e.target.closest(".btn-copy");
     if (!btn) return;
     var text = btn.getAttribute("data-copy") || "";
-    navigator.clipboard && navigator.clipboard.writeText
-      ? navigator.clipboard.writeText(text).then(function () { flash(btn); }, function () { fallbackCopy(text, btn); })
-      : fallbackCopy(text, btn);
+    var done = function () { flashCopy(btn); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, btn); });
+    } else {
+      fallbackCopy(text, btn);
+    }
   });
 
   function fallbackCopy(text, btn) {
@@ -1128,15 +1907,22 @@
     ta.select();
     try { document.execCommand("copy"); } catch (e) { /* ignore */ }
     ta.remove();
-    flash(btn);
+    flashCopy(btn);
   }
 
-  function flash(btn) {
+  function flashCopy(btn) {
     var prev = btn.textContent;
     btn.textContent = "Copied";
-    setTimeout(function () { btn.textContent = prev; }, 1400);
+    btn.dataset.copied = "true";
+    window.setTimeout(function () {
+      btn.textContent = prev;
+      btn.dataset.copied = "false";
+    }, 1400);
   }
 
+  /* ---------- Init ---------- */
+
+  checkServer();
 })();
 </script>
 </body>

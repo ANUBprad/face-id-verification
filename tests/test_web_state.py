@@ -142,6 +142,25 @@ class TestReverseSearchStage:
         assert search.state == "failed"
         assert search.detail == "Vision API unreachable"
 
+    def test_blocked_on_missing_credentials(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                faces=_faces(1),
+                reverse_search=None,
+                reverse_search_error=(
+                    "Failed to initialize Google Cloud Vision client. "
+                    "Ensure GOOGLE_APPLICATION_CREDENTIALS is set or "
+                    "Application Default Credentials are configured."
+                ),
+                status="reverse_search_failed",
+            ),
+        )
+        search = _by_name(state, "Reverse Image Search")
+        assert search.state == "blocked"
+        assert search.label == "BLOCKED"
+        assert "credentials" in search.detail.lower()
+
     def test_not_run_when_face_failed(self):
         state = build_verification_state(
             blockchain_enabled=False, report=_report(status="no_face_detected")
@@ -192,6 +211,26 @@ class TestMetadataStage:
         assert metadata.label == "NOT RUN"
         assert "reverse image search failed" in metadata.detail
 
+    def test_not_run_when_reverse_search_blocked(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                faces=_faces(1),
+                reverse_search=None,
+                reverse_search_error=(
+                    "Failed to initialize Google Cloud Vision client. "
+                    "Ensure GOOGLE_APPLICATION_CREDENTIALS is set."
+                ),
+                metadata=[],
+                metadata_errors=["Metadata extraction skipped: reverse search did not complete"],
+                status="reverse_search_failed",
+            ),
+        )
+        metadata = _by_name(state, "Metadata")
+        assert metadata.state == "not_run"
+        assert metadata.label == "NOT RUN"
+        assert "did not complete" in metadata.detail
+
     def test_not_run_when_no_pages_found(self):
         state = build_verification_state(
             blockchain_enabled=False,
@@ -207,6 +246,26 @@ class TestMetadataStage:
         )
         metadata = _by_name(state, "Metadata")
         assert metadata.state == "not_run"
+
+
+class TestHashStage:
+    def test_complete_when_hash_present(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(faces=_faces(1), reverse_search=_search_with_pages(), metadata=_metadata()),
+        )
+        hash_stage = _by_name(state, "Verification Hash")
+        assert hash_stage.state == "complete"
+        assert hash_stage.label == "COMPLETE"
+
+    def test_not_run_when_hash_absent(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(status="no_face_detected", verification_hash=None),
+        )
+        hash_stage = _by_name(state, "Verification Hash")
+        assert hash_stage.state == "not_run"
+        assert hash_stage.label == "NOT RUN"
 
 
 class TestBlockchainStage:
@@ -252,7 +311,7 @@ class TestBlockchainStage:
         assert blockchain.state == "complete"
         assert "duplicate" in blockchain.detail
 
-    def test_failed_on_configuration_error(self):
+    def test_blocked_on_missing_environment(self):
         state = build_verification_state(
             blockchain_enabled=True,
             report=_report(
@@ -263,8 +322,22 @@ class TestBlockchainStage:
             ),
         )
         blockchain = _by_name(state, "Blockchain")
-        assert blockchain.state == "failed"
+        assert blockchain.state == "blocked"
+        assert blockchain.label == "BLOCKED"
         assert "Configuration required" in blockchain.detail
+
+    def test_failed_on_generic_error(self):
+        state = build_verification_state(
+            blockchain_enabled=True,
+            report=_report(
+                faces=_faces(1),
+                reverse_search=_search_with_pages(),
+                metadata=_metadata(),
+                blockchain_error="RPC endpoint unreachable",
+            ),
+        )
+        blockchain = _by_name(state, "Blockchain")
+        assert blockchain.state == "failed"
 
     def test_not_run_when_pipeline_short_circuits(self):
         state = build_verification_state(
@@ -274,7 +347,7 @@ class TestBlockchainStage:
         assert blockchain.state == "not_run"
         assert blockchain.label == "NOT RUN"
 
-    def test_failed_when_recording_attempted_but_core_failed(self):
+    def test_blocked_when_recording_attempted_but_core_failed(self):
         state = build_verification_state(
             blockchain_enabled=True,
             report=_report(
@@ -284,7 +357,7 @@ class TestBlockchainStage:
             ),
         )
         blockchain = _by_name(state, "Blockchain")
-        assert blockchain.state == "failed"
+        assert blockchain.state == "blocked"
 
 
 class TestOverallState:
@@ -335,6 +408,21 @@ class TestOverallState:
         assert state.overall.label == "VERIFICATION FAILED"
         assert "reverse image search failed" in state.overall.detail.lower()
 
+    def test_failed_when_reverse_search_blocked(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                status="reverse_search_failed",
+                reverse_search_error=(
+                    "Failed to initialize Google Cloud Vision client. "
+                    "Ensure GOOGLE_APPLICATION_CREDENTIALS is set."
+                ),
+            ),
+        )
+        assert state.overall.state == "failed"
+        assert any("Reverse Image Search" in issue for issue in state.overall.issues)
+        assert "could not run" in state.overall.detail
+
     def test_failed_when_no_face(self):
         state = build_verification_state(
             blockchain_enabled=False, report=_report(status="no_face_detected")
@@ -361,4 +449,5 @@ class TestOverallState:
         assert labels["Face Detection"] == "COMPLETE"
         assert labels["Reverse Image Search"] == "FAILED"
         assert labels["Metadata"] == "NOT RUN"
+        assert labels["Verification Hash"] == "COMPLETE"
         assert labels["Blockchain"] == "DISABLED"

@@ -293,7 +293,7 @@
 
   .stage-strip {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
     gap: 10px;
     margin-bottom: 14px;
   }
@@ -324,6 +324,8 @@
   .stage-chip.st-complete .sc-state { color: var(--ok); }
   .stage-chip.st-failed { border-left-color: var(--danger); }
   .stage-chip.st-failed .sc-state { color: var(--danger); }
+  .stage-chip.st-blocked { border-left-color: var(--warn); }
+  .stage-chip.st-blocked .sc-state { color: var(--warn); }
   .stage-chip.st-not_run, .stage-chip.st-disabled { border-left-color: var(--muted); }
   .stage-chip.st-not_run .sc-state, .stage-chip.st-disabled .sc-state { color: var(--muted); }
 
@@ -436,6 +438,16 @@
 
   .count-pill b { color: var(--text); font-family: var(--mono); }
 
+  #evidence-row { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  .count-pill .ev-label {
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    margin-right: 5px;
+  }
+
   .mt { margin-top: 10px; }
   .mb { margin-bottom: 10px; }
 
@@ -533,6 +545,7 @@
       </div>
 
       <div id="stage-strip" class="stage-strip"></div>
+      <div id="evidence-row" class="hidden"></div>
       <div id="summary-issues" class="hidden"></div>
     </section>
 
@@ -601,6 +614,7 @@
   var BADGE_BY_STATE = {
     complete: "badge-ok",
     failed: "badge-danger",
+    blocked: "badge-warn",
     not_run: "badge-neutral",
     disabled: "badge-neutral"
   };
@@ -716,7 +730,9 @@
   }
 
   function stageNoteHtml(stage) {
-    var cls = stage.state === "complete" ? " ok" : (stage.state === "failed" ? " danger" : "");
+    var cls = stage.state === "complete" ? " ok"
+      : (stage.state === "failed" ? " danger"
+      : (stage.state === "blocked" ? " warn" : ""));
     return '<div class="note' + cls + '"><p class="ri-body"><b>' + esc(stage.label) + '.</b> ' + esc(stage.detail) + '</p></div>';
   }
 
@@ -732,15 +748,63 @@
     return map;
   }
 
-  function renderSummary(verification) {
+  function evidencePill(label, value) {
+    return '<span class="count-pill"><span class="ev-label">' + esc(label) + '</span><b>' + esc(value) + '</b></span>';
+  }
+
+  function renderEvidence(report, stages) {
+    var pills = [];
+    var face = stages["Face Detection"];
+    if (face && face.state === "complete" && report.faces && report.faces.length === 1) {
+      var f = report.faces[0];
+      pills.push(evidencePill("Face", "1 \u00b7 " + (f.detection_confidence * 100).toFixed(1) + "% confidence"));
+    }
+    var search = stages["Reverse Image Search"];
+    if (search && search.state === "complete" && report.reverse_search) {
+      var rs = report.reverse_search;
+      pills.push(evidencePill("Pages", rs.pages_with_matching_images.length));
+      pills.push(evidencePill(
+        "Matches",
+        rs.full_matching_images.length + " full / " + rs.partial_matching_images.length + " partial"
+      ));
+    }
+    if (report.verification_hash) {
+      var h = report.verification_hash;
+      pills.push(evidencePill("Hash", h.slice(0, 12) + "\u2026" + h.slice(-6)));
+    }
+    var chain = stages["Blockchain"];
+    if (chain) {
+      var chainTxt = chain.label;
+      if (chain.state === "complete" && report.blockchain) {
+        chainTxt = report.blockchain.confirmed ? "CONFIRMED"
+          : (report.blockchain.transaction_hash ? "RECORDED" : chain.label);
+      }
+      pills.push(evidencePill("Blockchain", chainTxt));
+    }
+    var el = document.getElementById("evidence-row");
+    el.innerHTML = pills.join("");
+    el.classList.toggle("hidden", pills.length === 0);
+  }
+
+  function renderSummary(verification, report) {
     var overall = verification.overall || {};
     var issues = overall.issues || [];
+    var stageList = verification.stages || [];
 
-    var kind = overall.state === "failed" ? "danger" : (issues.length ? "warn" : "ok");
+    var anyFailed = stageList.some(function (s) { return s.state === "failed"; });
+    var anyBlocked = stageList.some(function (s) { return s.state === "blocked"; });
+    var kind;
+    if (overall.state === "failed") {
+      kind = anyFailed ? "danger" : (anyBlocked ? "warn" : "danger");
+    } else {
+      kind = (anyFailed || anyBlocked || issues.length) ? "warn" : "ok";
+    }
     banner(kind, overall.label, overall.detail);
 
     document.getElementById("stage-strip").innerHTML =
-      (verification.stages || []).map(stageChipHtml).join("");
+      stageList.map(stageChipHtml).join("");
+
+    renderEvidence(report || {}, stagesByName(stageList));
 
     var issuesEl = document.getElementById("summary-issues");
     if (issues.length) {
@@ -776,8 +840,12 @@
     setChip("search-chip", stage.state, stage.label);
     var html = stageNoteHtml(stage);
 
-    if (stage.state === "failed") {
-      html += '<p class="placeholder mt">No public pages were checked. Verify Google Cloud Vision credentials and billing on the server.</p>';
+    if (stage.state === "failed" || stage.state === "blocked") {
+      if (stage.state === "blocked") {
+        html += '<p class="placeholder mt">The search provider could not be reached because its credentials or billing are unavailable. Configure GOOGLE_APPLICATION_CREDENTIALS on the server and retry.</p>';
+      } else {
+        html += '<p class="placeholder mt">No public pages were checked. Verify Google Cloud Vision credentials and billing on the server.</p>';
+      }
       if (report.reverse_search_error) {
         html += '<p class="placeholder mt">Server detail: ' + esc(report.reverse_search_error) + '</p>';
       }
@@ -915,18 +983,22 @@
     document.getElementById("meta-body").innerHTML = html;
   }
 
-  function renderHash(report, overall) {
-    setChip("hash-chip", overall.state, overall.label);
+  function renderHash(report, stage) {
+    setChip("hash-chip", stage.state, stage.label);
     var body = document.getElementById("hash-body");
     var h = report.verification_hash;
-    if (!h) {
-      body.innerHTML = '<p class="placeholder">No verification hash was produced — the pipeline did not complete.</p>';
+    if (stage.state === "complete" && h) {
+      body.innerHTML =
+        '<div class="note ok"><p class="ri-body"><b>' + esc(stage.label) + '.</b> ' + esc(stage.detail) + '</p></div>' +
+        '<div class="hash-hero mt">' + esc(h) + '</div>' +
+        '<div style="margin-top:10px">' + copyBtn(h) + '</div>' +
+        '<p class="placeholder mt">Deterministic hash of the face representation, reverse-search results, and metadata. The same image bytes always produce the same path-independent hash.</p>';
       return;
     }
-    body.innerHTML =
-      '<div class="hash-hero">' + esc(h) + '</div>' +
-      '<div style="margin-top:10px">' + copyBtn(h) + '</div>' +
-      '<p class="placeholder mt">Deterministic hash of the face representation, reverse-search results, and metadata. The same image bytes always produce the same path-independent hash.</p>';
+    body.innerHTML = stageNoteHtml(stage);
+    if (!h) {
+      body.innerHTML += '<p class="placeholder mt">No verification hash was produced - the pipeline did not complete far enough.</p>';
+    }
   }
 
   function renderBlockchain(data, stage) {
@@ -959,10 +1031,15 @@
       html += '<div class="note mt"><p class="ri-body"><b>DISABLED.</b> ' + esc(stage.detail) + '</p></div>';
     } else if (stage.state === "not_run") {
       html += '<div class="note mt"><p class="ri-body"><b>NOT RUN.</b> ' + esc(stage.detail) + '</p></div>';
+    } else if (stage.state === "blocked") {
+      var err = report.blockchain_error || "";
+      html += '<div class="note warn mt"><p class="ri-body"><b>BLOCKED.</b> ' + esc(stage.detail) + '</p></div>';
+      if (err) {
+        html += '<p class="placeholder mt">Server detail: ' + esc(err) + '</p>';
+      }
     } else if (stage.state === "failed") {
       var err = report.blockchain_error || "";
-      var isConfig = /environment variable is not set/.test(err);
-      html += '<div class="note ' + (isConfig ? "warn" : "danger") + ' mt"><p class="ri-body"><b>FAILED.</b> ' + esc(stage.detail) + '</p></div>';
+      html += '<div class="note danger mt"><p class="ri-body"><b>FAILED.</b> ' + esc(stage.detail) + '</p></div>';
       html += '<p class="placeholder mt">' + esc(err) + '</p>';
     } else if (stage.state === "complete" && report.blockchain) {
       html += '<div class="note ok mt"><p class="ri-body"><b>' + esc(stage.label) + '.</b> ' + esc(stage.detail) + '</p></div>';
@@ -977,16 +1054,13 @@
   function renderResults(data) {
     var report = data.report;
     var verification = data.verification || {};
-    var overall = verification.overall || {
-      state: "neutral", label: "VERIFICATION", detail: "", issues: []
-    };
     var stages = stagesByName(verification.stages);
 
-    renderSummary(verification);
+    renderSummary(verification, report);
     renderFace(report, stages["Face Detection"]);
     renderSearch(report, stages["Reverse Image Search"]);
     renderMetadata(report, stages["Metadata"]);
-    renderHash(report, overall);
+    renderHash(report, stages["Verification Hash"]);
     renderBlockchain(data, stages["Blockchain"]);
 
     results.classList.remove("hidden");

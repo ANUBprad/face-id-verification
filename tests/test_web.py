@@ -303,6 +303,7 @@ class TestVerificationState:
         assert stages["Face Detection"]["state"] == "complete"
         assert stages["Reverse Image Search"]["state"] == "complete"
         assert stages["Metadata"]["state"] == "complete"
+        assert stages["Verification Hash"]["state"] == "complete"
         assert stages["Blockchain"]["state"] == "disabled"
 
     def test_reverse_search_failure_marks_metadata_not_run(self):
@@ -334,7 +335,49 @@ class TestVerificationState:
         assert metadata["state"] == "not_run"
         assert metadata["label"] == "NOT RUN"
         assert "reverse image search failed" in metadata["detail"]
-        assert stages["Blockchain"]["state"] == "failed"
+        assert stages["Blockchain"]["state"] == "blocked"
+
+    def test_missing_gcv_credentials_response_is_truthful(self):
+        from face_id_verification.reverse_search import ReverseSearchError
+
+        def builder(**kwargs):
+            pipeline = _success_pipeline()
+            pipeline._blockchain_enabled = kwargs["blockchain_enabled"]
+            pipeline._contract_address = kwargs["contract_address"]
+            pipeline._reverse_searcher.search = MagicMock(
+                side_effect=ReverseSearchError(
+                    "Failed to initialize Google Cloud Vision client. "
+                    "Ensure GOOGLE_APPLICATION_CREDENTIALS is set or "
+                    "Application Default Credentials are configured."
+                )
+            )
+            return pipeline
+
+        app = create_app(pipeline_builder=builder)
+        response = TestClient(app).post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        report = data["report"]
+        assert report["status"] == "reverse_search_failed"
+        assert "GOOGLE_APPLICATION_CREDENTIALS" in report["reverse_search_error"]
+        assert report["metadata"] == []
+        verification = data["verification"]
+        assert verification["overall"]["state"] == "failed"
+        stages = {s["name"]: s for s in verification["stages"]}
+        assert stages["Face Detection"]["state"] == "complete"
+        assert stages["Reverse Image Search"]["state"] == "blocked"
+        assert stages["Reverse Image Search"]["label"] == "BLOCKED"
+        assert stages["Metadata"]["state"] == "not_run"
+        assert stages["Metadata"]["label"] == "NOT RUN"
+        assert stages["Verification Hash"]["state"] == "complete"
+        assert stages["Blockchain"]["state"] == "disabled"
+        assert stages["Blockchain"]["label"] == "DISABLED"
+        assert any(
+            "Reverse Image Search" in issue for issue in verification["overall"]["issues"]
+        )
 
     def test_blockchain_record_complete_state(self):
         record = BlockchainRecord(
@@ -393,6 +436,7 @@ class TestVerificationState:
     def test_served_html_does_not_label_metadata_failed(self, client):
         html = client.get("/").text
         assert "Metadata extraction failed" not in html
+        assert "BLOCKED" in html
         assert "verification.stages" in html
 
 

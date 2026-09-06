@@ -9,7 +9,22 @@ _STATE_LABELS = {
     "failed": "FAILED",
     "not_run": "NOT RUN",
     "disabled": "DISABLED",
+    "blocked": "BLOCKED",
 }
+
+_REVERSE_BLOCK_MARKERS = (
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "Application Default Credentials",
+    "could not automatically determine credentials",
+    "invalid authentication credentials",
+    "billing",
+    "API key",
+)
+
+
+def _is_external_dependency_blocked(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker.lower() in lowered for marker in _REVERSE_BLOCK_MARKERS)
 
 
 @dataclass(frozen=True)
@@ -54,6 +69,12 @@ def _reverse_search_stage(report: VerificationReport, face_failed: bool) -> Stag
     if face_failed:
         return _stage("Reverse Image Search", "not_run", "Not run because face detection did not complete.")
     if report.reverse_search_error:
+        if _is_external_dependency_blocked(report.reverse_search_error):
+            return _stage(
+                "Reverse Image Search",
+                "blocked",
+                "Provider credentials or billing are unavailable, so the search could not run.",
+            )
         return _stage("Reverse Image Search", "failed", report.reverse_search_error)
     if report.reverse_search is None:
         return _stage("Reverse Image Search", "failed", "The search provider returned no result.")
@@ -70,12 +91,13 @@ def _reverse_search_stage(report: VerificationReport, face_failed: bool) -> Stag
 
 
 def _metadata_stage(
-    report: VerificationReport, face_failed: bool, reverse_failed: bool
+    report: VerificationReport, face_failed: bool, reverse: StageState
 ) -> StageState:
     if face_failed:
         return _stage("Metadata", "not_run", "Not run because face detection did not complete.")
-    if reverse_failed:
-        return _stage("Metadata", "not_run", "Not run because reverse image search failed.")
+    if reverse.state in ("failed", "blocked"):
+        reason = "did not complete" if reverse.state == "blocked" else "failed"
+        return _stage("Metadata", "not_run", f"Not run because reverse image search {reason}.")
     items = report.metadata
     if not items:
         return _stage("Metadata", "not_run", "No matching pages were found to extract from.")
@@ -85,13 +107,27 @@ def _metadata_stage(
     return _stage("Metadata", "failed", f"Could not retrieve metadata from any of {len(items)} page(s).")
 
 
+def _hash_stage(report: VerificationReport) -> StageState:
+    if report.verification_hash:
+        return _stage(
+            "Verification Hash",
+            "complete",
+            "Deterministic fingerprint of the face representation, reverse-search results, and metadata.",
+        )
+    return _stage("Verification Hash", "not_run", "Not produced - verification did not complete.")
+
+
 def _blockchain_stage(blockchain_enabled: bool, report: VerificationReport) -> StageState:
     if not blockchain_enabled:
         return _stage("Blockchain", "disabled", "Disabled - no on-chain record was created.")
     if report.blockchain_error:
         detail = report.blockchain_error
         if "environment variable is not set" in detail:
-            detail = "Configuration required: SEPOLIA_RPC_URL / SEPOLIA_PRIVATE_KEY are not set."
+            return _stage(
+                "Blockchain",
+                "blocked",
+                "Configuration required: SEPOLIA_RPC_URL / SEPOLIA_PRIVATE_KEY are not set.",
+            )
         return _stage("Blockchain", "failed", detail)
     if report.blockchain:
         record = report.blockchain
@@ -114,20 +150,19 @@ def build_verification_state(
     face_failed = face.state == "failed"
 
     reverse = _reverse_search_stage(report, face_failed)
-    reverse_failed = reverse.state == "failed"
-
-    metadata = _metadata_stage(report, face_failed, reverse_failed)
+    metadata = _metadata_stage(report, face_failed, reverse)
+    verification_hash = _hash_stage(report)
     blockchain = _blockchain_stage(blockchain_enabled, report)
 
-    stages = [face, reverse, metadata, blockchain]
-    issues = [f"{stage.name}: {stage.detail}" for stage in stages if stage.state == "failed"]
+    stages = [face, reverse, metadata, verification_hash, blockchain]
+    issues = [f"{stage.name}: {stage.detail}" for stage in stages if stage.state in ("failed", "blocked")]
 
     if report.status == "success":
-        if blockchain.state == "failed":
+        if blockchain.state in ("failed", "blocked"):
             overall = OverallState(
                 state="complete",
                 label="VERIFICATION COMPLETE",
-                detail="Core verification completed, but the on-chain record failed.",
+                detail="Core verification completed, but the on-chain record could not be created.",
                 issues=issues,
             )
         elif blockchain_enabled:
@@ -145,13 +180,19 @@ def build_verification_state(
                 issues=issues,
             )
     else:
-        detail = {
-            "face_detection_failed": "Face detection failed, so the pipeline stopped.",
-            "no_face_detected": "No face detected, so the pipeline stopped.",
-            "multiple_faces": "Multiple faces detected, so the pipeline stopped.",
-            "reverse_search_failed": "Reverse image search failed, so metadata extraction was not run.",
-            "metadata_failed": "Metadata extraction failed for all matching pages.",
-        }.get(report.status, "The verification pipeline did not complete.")
+        if report.status == "reverse_search_failed":
+            detail = (
+                "Reverse image search could not run because the provider credentials or billing are unavailable, so metadata extraction was not run."
+                if reverse.state == "blocked"
+                else "Reverse image search failed, so metadata extraction was not run."
+            )
+        else:
+            detail = {
+                "face_detection_failed": "Face detection failed, so the pipeline stopped.",
+                "no_face_detected": "No face detected, so the pipeline stopped.",
+                "multiple_faces": "Multiple faces detected, so the pipeline stopped.",
+                "metadata_failed": "Metadata extraction failed for all matching pages.",
+            }.get(report.status, "The verification pipeline did not complete.")
         overall = OverallState(
             state="failed",
             label="VERIFICATION FAILED",

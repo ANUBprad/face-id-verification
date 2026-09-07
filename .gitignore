@@ -26,6 +26,9 @@ build/
 venv/
 env/
 
+# Frontend
+frontend/node_modules/
+
 # Testing
 .pytest_cache/
 .coverage

@@ -7,20 +7,20 @@
 <title>MukhdaX — See. Trace. Verify.</title>
 <style>
   :root {
-    --bg: #070b12;
-    --bg-soft: #0b111c;
-    --surface: #101827;
-    --surface-2: #141e2f;
-    --surface-3: #1a2639;
-    --border: #1e2b40;
-    --border-soft: #172136;
-    --border-strong: #2b3b57;
-    --text: #e6edf7;
-    --text-dim: #b0bed2;
-    --muted: #8091ad;
-    --accent: #4f8cff;
-    --accent-strong: #3367d6;
-    --accent-soft: rgba(79, 140, 255, 0.12);
+    --bg: #0a0a0a;
+    --bg-soft: #111111;
+    --surface: #161616;
+    --surface-2: #1c1c1c;
+    --surface-3: #222222;
+    --border: #2a2a2a;
+    --border-soft: #1f1f1f;
+    --border-strong: #333333;
+    --text: #f5f5f5;
+    --text-dim: #999999;
+    --muted: #666666;
+    --accent: #ff8c00;
+    --accent-strong: #e67e22;
+    --accent-soft: rgba(255, 140, 0, 0.12);
     --ok: #3aaf6f;
     --ok-soft: rgba(58, 175, 111, 0.13);
     --warn: #e0a43c;
@@ -52,7 +52,7 @@
   body {
     min-height: 100vh;
     background:
-      radial-gradient(900px 340px at 50% -140px, rgba(79, 140, 255, 0.09), transparent 70%),
+      radial-gradient(900px 340px at 50% -140px, rgba(255, 140, 0, 0.09), transparent 70%),
       var(--bg);
   }
 
@@ -195,11 +195,43 @@
   /* ---------- Hero ---------- */
   .hero {
     display: grid;
-    grid-template-columns: minmax(0, 4fr) minmax(0, 5fr);
-    gap: 36px;
+    grid-template-columns: 1fr 1.5fr 1fr;
+    gap: 20px;
     align-items: center;
     padding: 44px 0 30px;
   }
+
+  .hero-right-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+  }
+
+  .hero-right-col h2 {
+    font-size: 42px;
+    line-height: 1.1;
+    margin: 0 0 40px;
+    font-weight: 800;
+  }
+  .hero-right-col h2 span { display: block; color: var(--border-strong); }
+  .hero-right-col h2 span.active { color: var(--accent); }
+
+  .hero-terminal {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    width: 100%;
+    text-align: left;
+  }
+  .hero-terminal h3 { margin: 0 0 10px; font-size: 11px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+  .hero-terminal .t-line { margin: 4px 0; display: flex; gap: 8px; }
+  .hero-terminal .t-line::before { content: "■"; color: var(--border-strong); font-size: 8px; align-self: center; }
+  .hero-terminal .t-line.active::before { color: var(--accent); }
 
   .hero-copy .eyebrow,
   .result-summary .eyebrow {
@@ -255,35 +287,47 @@
     box-shadow: var(--shadow);
   }
 
-  .howitworks { margin-bottom: 26px; }
-  .how-head { margin-bottom: 18px; }
-  .how-head h2 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
-  .how-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
+  .howitworks { padding: 80px 0 60px; background: transparent; border: none; box-shadow: none; }
+  .how-head { text-align: center; margin-bottom: 60px; }
+  .how-head .eyebrow { margin: 0 0 12px; font-size: 14px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+  .how-head h2 { margin: 0; font-size: 36px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+  
+  .timeline-container { position: relative; max-width: 800px; margin: 0 auto; padding: 20px 0; }
+  .timeline-container::before {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 24px; width: 2px;
+    background: linear-gradient(to bottom, transparent, var(--border-strong) 10%, var(--border-strong) 90%, transparent); z-index: 1;
   }
-  .how-step {
-    border: 1px solid var(--border-soft);
-    background: var(--surface-2);
-    border-radius: var(--radius);
-    padding: 16px 18px;
+  .timeline-item { position: relative; display: flex; align-items: flex-start; margin-bottom: 40px; padding-left: 60px; }
+  .timeline-item:last-child { margin-bottom: 0; }
+  
+  .timeline-node {
+    position: absolute; left: 20px; top: 24px; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--border-strong); z-index: 2; transition: all 0.3s ease;
   }
-  .how-num {
-    display: inline-grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    margin-bottom: 10px;
+  .timeline-item:hover .timeline-node { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  
+  .timeline-content {
+    background: #0f0f0f; border: 1px solid var(--border-soft); border-radius: var(--radius);
+    padding: 28px 36px; flex: 1; transition: all 0.3s ease; position: relative; overflow: hidden;
   }
-  .how-step h3 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
-  .how-step p { margin: 0; font-size: 13px; color: var(--text-dim); }
+  .timeline-item:hover .timeline-content { border-color: var(--border-strong); transform: translateX(6px); }
+  
+  .timeline-content .step-num {
+    font-family: var(--font-mono); font-size: 80px; font-weight: 900;
+    color: rgba(255, 255, 255, 0.02); position: absolute; top: -10px; right: 10px; line-height: 1; user-select: none; pointer-events: none; transition: color 0.3s ease;
+  }
+  .timeline-item:hover .timeline-content .step-num { color: rgba(255, 140, 0, 0.05); }
+  
+  .timeline-content h3 { margin: 0 0 12px; font-size: 20px; font-weight: 700; color: var(--text); position: relative; z-index: 2; }
+  .timeline-content p { margin: 0; font-size: 14.5px; color: var(--text-dim); line-height: 1.6; position: relative; z-index: 2; }
+  
+  @media (max-width: 600px) {
+    .timeline-container::before { left: 16px; }
+    .timeline-node { left: 12px; }
+    .timeline-item { padding-left: 44px; margin-bottom: 24px; }
+    .timeline-content { padding: 20px 24px; }
+    .timeline-content .step-num { font-size: 60px; right: 0; }
+  }
 
   .panel-pad { padding: 22px; }
 
@@ -957,8 +1001,10 @@
   }
 
   @media (max-width: 900px) {
-    .hero { grid-template-columns: 1fr; gap: 22px; padding: 26px 0 22px; }
-    .how-grid { grid-template-columns: repeat(2, 1fr); }
+    .hero { grid-template-columns: 1fr; gap: 40px; padding: 26px 0 22px; }
+    .hero-right-col { align-items: flex-start; text-align: left; }
+    .hero-right-col h2 { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+
     .workflow-row { grid-template-columns: repeat(2, 1fr); row-gap: 18px; }
     .workflow-row::before { display: none; }
     .wstep { flex-direction: row; justify-content: flex-start; text-align: left; gap: 10px; }
@@ -984,24 +1030,26 @@
 <a class="skip-link" href="#main">Skip to content</a>
 
 <header class="site-header">
-  <div class="shell header-inner">
-    <div class="brand">
-      <span class="logo-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3l7 3v5c0 4.6-3 8.2-7 10-4-1.8-7-5.4-7-10V6z"></path>
-          <path d="M8.8 11.6l2.2 2.2 4.2-4.4"></path>
-        </svg>
+  <div class="shell header-inner" style="justify-content: space-between;">
+    <div class="brand" style="display: flex; align-items: center; gap: 24px;">
+      <span class="brand-text" style="display: flex; flex-direction: column; line-height: 1.2;">
+        <span class="brand-name" style="font-size: 20px;">ArtSox</span>
+        <span class="brand-sub" style="color: var(--accent); font-size: 10px; font-weight: 700; text-transform: uppercase; margin-top: 2px;">AI Security</span>
       </span>
-      <span class="brand-text">
-        <span class="brand-name">Mukhda<span class="accent">X</span></span>
-        <span class="brand-sub">See. Trace. Verify.</span>
-      </span>
+      <div style="display: flex; gap: 12px; margin-left: 12px;">
+        <span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); color: var(--text-dim); cursor: pointer;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></span>
+        <span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); color: var(--text-dim); cursor: pointer;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></span>
+      </div>
     </div>
-    <div class="header-status">
-      <nav class="site-nav" aria-label="Primary">
-        <a href="#how-it-works">How it works</a>
-        <a href="https://github.com/ANUBprad/face-id-verification" target="_blank" rel="noopener noreferrer">GitHub</a>
-      </nav>
+    
+    <div class="header-nav" style="display: flex; gap: 24px;">
+      <a href="#" style="color: var(--text-dim); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; text-decoration: none;">Features</a>
+      <a href="#" style="color: var(--text-dim); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; text-decoration: none;">Pricing</a>
+      <a href="#" style="color: var(--text-dim); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; text-decoration: none;">Resources</a>
+    </div>
+
+    <!-- Hidden MukhdaX statuses -->
+    <div style="display: none;">
       <span class="status-badge network"><span class="dot" aria-hidden="true"></span>SEPOLIA TESTNET</span>
       <span id="server-status" class="status-badge server" data-alive="checking"><span class="dot" aria-hidden="true"></span><span id="server-status-text">Checking</span></span>
     </div>
@@ -1013,32 +1061,35 @@
   <!-- ======= Hero / upload ======= -->
   <section class="hero" aria-labelledby="hero-heading">
     <div class="hero-copy">
-      <p class="eyebrow">Digital Identity Verification</p>
-      <h1 id="hero-heading">Verify an image</h1>
-      <p class="hero-sub">Upload an image to detect faces, discover matching web sources, extract metadata, and create a tamper-evident verification record.</p>
-      <ul class="trust-indicators" aria-label="Pipeline capabilities">
-        <li>Face Analysis</li>
-        <li>Web Discovery</li>
-        <li>Metadata</li>
-        <li>SHA-256</li>
-        <li>Ethereum Sepolia</li>
-      </ul>
+      <h1 id="hero-heading" style="font-size: 48px; font-weight: 800; line-height: 1.1; margin-bottom: 24px;">Adaptive<br>Threat<br>Guard</h1>
+      <p class="hero-sub" style="font-size: 14px; max-width: 280px; margin-bottom: 32px;">AI-powered defense that detects anomalies, predicts threats, and protects your infrastructure in real time.</p>
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 40px;">
+        <div style="display: flex;">
+          <div style="width: 24px; height: 24px; border-radius: 50%; background: #333; border: 2px solid var(--bg); z-index: 2;"></div>
+          <div style="width: 24px; height: 24px; border-radius: 50%; background: #555; border: 2px solid var(--bg); margin-left: -8px; z-index: 1;"></div>
+        </div>
+        <span style="font-size: 11px; color: var(--muted); font-family: var(--font-mono);">Trusted by modern security teams.</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 20px;">
+        <button class="btn btn-primary" style="border-radius: 4px; padding: 12px 24px; font-size: 13px;" onclick="document.getElementById('choose-btn').click()">Get Started</button>
+        <a href="#how-it-works" style="color: var(--text-dim); font-size: 13px; font-weight: 600;">Explore Platform &rarr;</a>
+      </div>
     </div>
 
-    <div class="upload-panel">
-      <div class="panel panel-pad">
-        <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Upload an image. Drag and drop, or press Enter to browse.">
-          <span class="dz-icon" aria-hidden="true">
+    <div class="upload-panel" style="position: relative;">
+      <div class="panel panel-pad" style="background: transparent; border-color: var(--border-strong); border-radius: 0;">
+        <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Upload an image. Drag and drop, or press Enter to browse." style="background: transparent; border-radius: 0;">
+          <span class="dz-icon" aria-hidden="true" style="background: transparent; border: 1px solid var(--border);">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 16V4"></path>
               <path d="M7 8l5-4 5 4"></path>
               <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"></path>
             </svg>
           </span>
-          <p class="dz-title">Drop an image here</p>
+          <p class="dz-title" style="color: var(--text);">Drop an image here</p>
           <p class="dz-or">or</p>
-          <button id="choose-btn" class="btn btn-primary" type="button">Choose Image</button>
-          <p class="dz-meta">JPG &middot; PNG &middot; WebP &mdash; up to 10 MB</p>
+          <button id="choose-btn" class="btn btn-ghost" type="button" style="border-radius: 0; font-family: var(--font-mono); font-size: 11px; padding: 6px 12px; letter-spacing: 0.1em; text-transform: uppercase;">Choose Image</button>
+          <p class="dz-meta" style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 24px;">STABLE_NODE_ACK &nbsp;&nbsp; SECURITY AT THE CORE</p>
           <input id="file-input" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" aria-label="Choose an image file">
         </div>
 
@@ -1054,10 +1105,10 @@
             </div>
           </div>
           <button id="change-file" class="btn btn-ghost mt" type="button" style="width:100%">Change image</button>
-          <button id="verify-btn" class="btn btn-primary btn-verify" type="button" disabled>Verify Image</button>
+          <button id="verify-btn" class="btn btn-primary btn-verify" type="button" disabled style="border-radius: 4px;">Verify Image</button>
         </div>
 
-        <details class="advanced">
+        <details class="advanced" style="background: transparent; border-color: var(--border-strong); border-radius: 0;">
           <summary>Blockchain options</summary>
           <div class="adv-body">
             <div class="field">
@@ -1066,53 +1117,93 @@
             </div>
             <div class="field">
               <label for="contract-address">Contract address</label>
-              <input id="contract-address" type="text" placeholder="0x..." spellcheck="false" autocomplete="off">
+              <input id="contract-address" type="text" placeholder="0x..." spellcheck="false" autocomplete="off" style="border-radius: 0;">
               <p class="hint">Checksummed address of the deployed VerificationRegistry contract.</p>
             </div>
           </div>
         </details>
 
-        <p id="upload-error" class="upload-error" role="alert"></p>
+        <p id="upload-error" class="upload-error" role="alert" style="border-radius: 0;"></p>
+      </div>
+    </div>
+
+    <div class="hero-right-col">
+      <h2>
+        <span>Detect</span>
+        <span>Track</span>
+        <span class="active">Predict</span>
+        <span>Respond</span>
+      </h2>
+      <div class="hero-terminal">
+        <h3>TECHNICAL SIDE</h3>
+        <div class="t-line">0x7F - SYSCALL_TRACE_INIT</div>
+        <div class="t-line active">MEM_USAGE: [||||||||||  ] 82%</div>
+        <div class="t-line">DEFENSE_VECTOR_SET_04</div>
+        <div class="t-line">ANOMALY_DETECTED: NULL</div>
       </div>
     </div>
   </section>
 
   <!-- ======= How it works ======= -->
-  <section id="how-it-works" class="howitworks panel panel-pad" aria-labelledby="how-heading">
+  <section id="how-it-works" class="howitworks" aria-labelledby="how-heading">
     <div class="how-head">
       <p class="eyebrow">Understand the pipeline</p>
       <h2 id="how-heading">How it works</h2>
     </div>
-    <div class="how-grid">
-      <div class="how-step">
-        <span class="how-num" aria-hidden="true">1</span>
-        <h3>Detect &amp; represent the face</h3>
-        <p>The uploaded image is analyzed to detect exactly one face and produce a numerical face representation. Its SHA-256 fingerprint is retained; the raw embedding is never exposed.</p>
+    
+    <div class="timeline-container">
+      <div class="timeline-item">
+        <div class="timeline-node"></div>
+        <div class="timeline-content">
+          <span class="step-num">01</span>
+          <h3>Detect &amp; represent the face</h3>
+          <p>The uploaded image is analyzed to detect exactly one face and produce a numerical face representation. Its SHA-256 fingerprint is retained; the raw embedding is never exposed.</p>
+        </div>
       </div>
-      <div class="how-step">
-        <span class="how-num" aria-hidden="true">2</span>
-        <h3>Discover web evidence</h3>
-        <p>A genuine reverse-image search via SerpApi Google Lens locates public pages carrying matching, related, or visually similar images.</p>
+      
+      <div class="timeline-item">
+        <div class="timeline-node"></div>
+        <div class="timeline-content">
+          <span class="step-num">02</span>
+          <h3>Discover web evidence</h3>
+          <p>A genuine reverse-image search via SerpApi Google Lens locates public pages carrying matching, related, or visually similar images.</p>
+        </div>
       </div>
-      <div class="how-step">
-        <span class="how-num" aria-hidden="true">3</span>
-        <h3>Extract post metadata</h3>
-        <p>Matching pages are opened to extract published date, title, description, images, and platform details for provenance context.</p>
+      
+      <div class="timeline-item">
+        <div class="timeline-node"></div>
+        <div class="timeline-content">
+          <span class="step-num">03</span>
+          <h3>Extract post metadata</h3>
+          <p>Matching pages are opened to extract published date, title, description, images, and platform details for provenance context.</p>
+        </div>
       </div>
-      <div class="how-step">
-        <span class="how-num" aria-hidden="true">4</span>
-        <h3>Fingerprint the evidence</h3>
-        <p>The complete verification payload is reduced to a Keccak-256 fingerprint, creating a tamper-evident digest of the finding.</p>
+      
+      <div class="timeline-item">
+        <div class="timeline-node"></div>
+        <div class="timeline-content">
+          <span class="step-num">04</span>
+          <h3>Fingerprint the evidence</h3>
+          <p>The complete verification payload is reduced to a Keccak-256 fingerprint, creating a tamper-evident digest of the finding.</p>
+        </div>
       </div>
-      <div class="how-step">
-        <span class="how-num" aria-hidden="true">5</span>
-        <h3>Anchor on-chain</h3>
-        <p>Optional: the fingerprint is recorded as a real transaction on the Ethereum Sepolia testnet, producing a publicly verifiable record linkable to this verification.</p>
+      
+      <div class="timeline-item">
+        <div class="timeline-node"></div>
+        <div class="timeline-content">
+          <span class="step-num">05</span>
+          <h3>Anchor on-chain</h3>
+          <p>Optional: the fingerprint is recorded as a real transaction on the Ethereum Sepolia testnet, producing a publicly verifiable record linkable to this verification.</p>
+        </div>
       </div>
-      <div class="how-step">
-        <span class="how-num" aria-hidden="true">6</span>
-        <h3>Review the report</h3>
-        <p>Results are presented as evidence cards with truthful per-stage states and an exportable JSON report for independent verification.</p>
+      
+      <div class="timeline-item">
+        <div class="timeline-node"></div>
+        <div class="timeline-content">
+          <span class="step-num">06</span>
+          <h3>Review the report</h3>
+          <p>Results are presented as evidence cards with truthful per-stage states and an exportable JSON report for independent verification.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -2140,5 +2231,16 @@
   checkServer();
 })();
 </script>
+  <div style="position: fixed; bottom: 0; left: 0; right: 0; height: 50px; background: rgba(10, 10, 10, 0.9); backdrop-filter: blur(10px); border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; z-index: 100;">
+    <div style="display: flex; align-items: center; gap: 16px; flex: 1;">
+      <div style="display: flex;">
+        <div style="width: 20px; height: 20px; border-radius: 50%; background: #444; border: 2px solid var(--bg); z-index: 3;"></div>
+        <div style="width: 20px; height: 20px; border-radius: 50%; background: #666; border: 2px solid var(--bg); margin-left: -6px; z-index: 2;"></div>
+        <div style="width: 20px; height: 20px; border-radius: 50%; background: #888; border: 2px solid var(--bg); margin-left: -6px; z-index: 1;"></div>
+      </div>
+      <span style="font-family: var(--font-mono); font-size: 11px; color: var(--muted);">AI defense trained to detect anomalies before they spread.</span>
+    </div>
+    <div style="border: 1px solid var(--accent); color: var(--accent); font-family: var(--font-mono); font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 4px; letter-spacing: 0.1em; text-transform: uppercase;">Active</div>
+  </div>
 </body>
 </html>

@@ -1,3 +1,5 @@
+@import url("https://fonts.cdnfonts.com/css/google-sans");
+
 :root {
   color-scheme: dark;
   --bg: #050505;
@@ -17,7 +19,9 @@
   --warn: #e2b93d;
   --radius: 12px;
   --font:
-    ui-sans-serif,
+    "Google Sans",
+    "Google Sans Text",
+    "Product Sans",
     system-ui,
     -apple-system,
     "Segoe UI",

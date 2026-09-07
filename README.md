@@ -17,12 +17,14 @@ Face/Image Input
 
 ## What MukhdaX does — and does not
 
-This project does **not** perform biometric identity verification:
+This project does **not** perform biometric identity matching:
 
 - It does **not** determine whether a face belongs to a particular person.
 - It does **not** compare a face to a reference identity image.
 
-Face detection and face embeddings are used as **evidence components** in a fingerprint pipeline. The output is a deterministic, on-chain-anchored verification record for the analyzed content: which face was detected, where that image publicly matches, what metadata those pages expose, and a hash binding all of that together.
+Face detection and face embeddings are used as **evidence components** in a fingerprint pipeline. Likewise, Google Lens visual matches are **reverse-image discovery evidence** — pages where the same or a visually similar image already publicly appears. They do **not** prove that two people are the same individual, and no stage in the pipeline claims to establish a person's identity.
+
+The output is a deterministic, on-chain-anchored verification record for the analyzed content: which face was detected, where that image publicly matches, what metadata those pages expose, and a hash binding all of that together.
 
 ## Features
 

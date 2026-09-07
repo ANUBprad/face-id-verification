@@ -7,8 +7,11 @@ import Footer from "./components/Footer";
 export default function App() {
   return (
     <>
+      <a className="skip-link" href="#top">
+        Skip to content
+      </a>
       <Navbar />
-      <main>
+      <main id="top">
         <Hero />
         <HowItWorks />
         <VerificationWorkspace />

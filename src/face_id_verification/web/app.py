@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from web3 import Web3
 
 from face_id_verification.blockchain_recording import SEPOLIA_CHAIN_ID
@@ -138,6 +139,15 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return _index_html()
+
+    assets_root = resources.files("face_id_verification").joinpath(
+        "web", "static", "assets"
+    )
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(assets_root), check_dir=False),
+        name="assets",
+    )
 
     @app.post("/api/verify")
     async def verify_image(

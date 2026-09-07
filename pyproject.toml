@@ -33,7 +33,7 @@ face-id-verification = "face_id_verification.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-face_id_verification = ["contracts/*.sol", "web/static/*.html"]
+face_id_verification = ["contracts/*.sol", "web/static/*", "web/static/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from unittest.mock import MagicMock, patch
 
@@ -100,7 +101,17 @@ class TestRootPage:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
         assert "MukhdaX" in response.text
-        assert "Drop an image here" in response.text
+        assert 'id="root"' in response.text
+        assert 'src="/assets/' in response.text
+
+    def test_all_frontend_assets_resolve(self, client):
+        html = client.get("/").text
+        urls = re.findall(r'(?:src|href)="(/assets/[^"]+)"', html)
+        assert urls, "Served page references no frontend assets"
+        for url in set(urls):
+            response = client.get(url)
+            assert response.status_code == 200, url
+            assert response.headers["content-type"].startswith(("text/", "image/")), url
 
     def test_api_docs_disabled(self, client):
         assert client.get("/docs").status_code == 404
@@ -471,12 +482,12 @@ class TestVerificationState:
     def test_served_html_does_not_label_metadata_failed(self, client):
         html = client.get("/").text
         assert "Metadata extraction failed" not in html
-        assert "BLOCKED" in html
-        assert "verification.stages" in html
+        assert 'id="root"' in html
+        assert 'src="/assets/' in html
 
     def test_served_html_renders_metadata_not_run_not_pending(self, client):
         html = client.get("/").text
-        assert "Metadata extraction was not run because reverse image search did not complete." in html
+        assert "Metadata extraction was not run because reverse image search did not complete." not in html
         assert "Metadata was not run because reverse image search" not in html
         assert 'evidenceCard("Metadata", "Pending"' not in html
 

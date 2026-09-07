@@ -3,7 +3,7 @@ export default function Footer() {
     <footer className="site-footer">
       <div className="footer-inner">
         <div className="footer-brand">
-          <p className="footer-name">MukhdaX</p>
+          <img className="footer-logo" src="/assets/branding/logo-bg.png" alt="MukhdaX" />
           <p className="tagline">See. Trace. Verify.</p>
         </div>
         <p className="footer-note">

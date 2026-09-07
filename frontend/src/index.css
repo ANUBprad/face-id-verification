@@ -189,15 +189,10 @@ section {
 }
 
 .brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--accent-dim);
-  border: 1px solid var(--accent-border);
-  color: var(--accent);
+  display: block;
+  height: 24px;
+  width: auto;
+  object-fit: contain;
 }
 
 .brand-name {
@@ -312,6 +307,14 @@ section {
 
 .hero .eyebrow {
   margin: 0 0 16px;
+}
+
+.hero-logo {
+  display: block;
+  height: clamp(44px, 7vw, 72px);
+  width: auto;
+  object-fit: contain;
+  margin: 0 0 24px;
 }
 
 .hero-sub {
@@ -1285,11 +1288,13 @@ section {
   gap: 18px;
 }
 
-.footer-name {
-  margin: 0;
-  color: var(--text);
-  font-weight: 800;
-  font-size: 18px;
+.footer-logo {
+  display: block;
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+  border-radius: 6px;
+  margin-bottom: 10px;
 }
 
 .footer-brand .tagline {

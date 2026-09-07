@@ -24,12 +24,7 @@ export default function Navbar() {
     <header className="site-nav">
       <div className="nav-inner">
         <a className="brand" href="#top" onClick={close} aria-label="MukhdaX home">
-          <span className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-              <path d="M4 7l8-4 8 4v10l-8 4-8-4z" />
-              <path d="M8 10v4M12 10v4M16 10v4" />
-            </svg>
-          </span>
+          <img className="brand-mark" src="/assets/branding/logo.png" alt="" aria-hidden="true" width="48" height="24" />
           <span className="brand-name">MukhdaX</span>
         </a>
 

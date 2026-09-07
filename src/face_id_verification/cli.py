@@ -10,6 +10,7 @@ from pathlib import Path
 
 from web3 import Web3
 
+from face_id_verification.config import load_local_config
 from face_id_verification.pipeline import VerificationPipeline
 
 logger = logging.getLogger("face_id_verification")
@@ -166,4 +167,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    load_local_config()
     sys.exit(main())

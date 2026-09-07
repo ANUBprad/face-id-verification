@@ -4,6 +4,7 @@ import os
 
 import uvicorn
 
+from face_id_verification.config import load_local_config
 from face_id_verification.web.app import create_app
 
 
@@ -14,4 +15,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    load_local_config()
     main()

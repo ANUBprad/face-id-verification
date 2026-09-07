@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { VerifyResponse } from "../types/verification";
 import { ApiError, verifyImage } from "../lib/api";
-import { shortHash } from "../lib/utils";
 import ImageUploader from "./ImageUploader";
 import VerificationProgress from "./VerificationProgress";
+import VerificationResult from "./VerificationResult";
 
 type Phase = "idle" | "verifying" | "done" | "error";
 
@@ -138,49 +138,9 @@ export default function VerificationWorkspace() {
             </div>
           )}
 
-          {phase === "done" && data && (
-            <ResultSummary data={data} />
-          )}
+          {phase === "done" && data && <VerificationResult data={data} />}
         </div>
       </div>
     </section>
-  );
-}
-
-function ResultSummary({ data }: { data: VerifyResponse }) {
-  const overall = data.verification.overall;
-  const stages = data.verification.stages;
-  const failed = overall.state === "failed";
-  const warned = overall.state === "complete" && overall.issues.length > 0;
-
-  return (
-    <div className="result-card">
-      <div className={`status-banner ${failed ? "danger" : warned ? "warn" : "ok"}`}>
-        <p className="sb-label">{overall.label}</p>
-        <p className="sb-detail">{overall.detail}</p>
-        {overall.issues.length > 0 && (
-          <ul className="sb-issues">
-            {overall.issues.map((issue) => (
-              <li key={issue}>{issue}</li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <ol className="stage-list">
-        {stages.map((stage) => (
-          <li key={stage.name} className={`stage-item st-${stage.state}`}>
-            <span className="stage-name">{stage.name}</span>
-            <span className="stage-label" data-state={stage.state}>{stage.label}</span>
-            <span className="stage-detail">{stage.detail}</span>
-          </li>
-        ))}
-      </ol>
-
-      <dl className="fingerprint">
-        <dt>Verification fingerprint</dt>
-        <dd title={data.report.verification_hash ?? ""}>{shortHash(data.report.verification_hash ?? "not produced")}</dd>
-      </dl>
-    </div>
   );
 }

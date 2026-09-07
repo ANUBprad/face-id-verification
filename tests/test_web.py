@@ -379,6 +379,41 @@ class TestVerificationState:
             "Reverse Image Search" in issue for issue in verification["overall"]["issues"]
         )
 
+    def test_missing_serpapi_key_response_is_blocked(self):
+        from face_id_verification.reverse_search import ReverseSearchError
+
+        def builder(**kwargs):
+            pipeline = _success_pipeline()
+            pipeline._blockchain_enabled = kwargs["blockchain_enabled"]
+            pipeline._contract_address = kwargs["contract_address"]
+            pipeline._reverse_searcher.search = MagicMock(
+                side_effect=ReverseSearchError(
+                    "SERPAPI_API_KEY is required "
+                    "(set the SERPAPI_API_KEY environment variable)."
+                )
+            )
+            return pipeline
+
+        app = create_app(pipeline_builder=builder)
+        response = TestClient(app).post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        report = data["report"]
+        assert report["status"] == "reverse_search_failed"
+        assert "SERPAPI_API_KEY" in report["reverse_search_error"]
+        assert report["metadata"] == []
+        verification = data["verification"]
+        assert verification["overall"]["state"] == "failed"
+        stages = {s["name"]: s for s in verification["stages"]}
+        assert stages["Reverse Image Search"]["state"] == "blocked"
+        assert stages["Reverse Image Search"]["label"] == "BLOCKED"
+        assert stages["Metadata"]["state"] == "not_run"
+        assert stages["Metadata"]["label"] == "NOT RUN"
+        assert stages["Verification Hash"]["state"] == "complete"
+
     def test_blockchain_record_complete_state(self):
         record = BlockchainRecord(
             verification_hash="0xabc123",

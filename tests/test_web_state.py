@@ -161,6 +161,52 @@ class TestReverseSearchStage:
         assert search.label == "BLOCKED"
         assert "credentials" in search.detail.lower()
 
+    def test_blocked_on_missing_serpapi_key(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                faces=_faces(1),
+                reverse_search=None,
+                reverse_search_error=(
+                    "SERPAPI_API_KEY is required (set the SERPAPI_API_KEY environment variable)."
+                ),
+                status="reverse_search_failed",
+            ),
+        )
+        search = _by_name(state, "Reverse Image Search")
+        assert search.state == "blocked"
+        assert search.label == "BLOCKED"
+        assert "credentials or billing" in search.detail
+
+    def test_failed_on_serpapi_rate_limit(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                faces=_faces(1),
+                reverse_search=None,
+                reverse_search_error="SerpApi Google Lens search rate limit exceeded (HTTP 429)",
+                status="reverse_search_failed",
+            ),
+        )
+        search = _by_name(state, "Reverse Image Search")
+        assert search.state == "failed"
+        assert search.label == "FAILED"
+        assert "rate limit" in search.detail
+
+    def test_complete_with_lens_pages_only_matches(self):
+        lens_search = ReverseSearchResult(
+            pages_with_matching_images=[
+                MatchingPage(url="https://example.com/post", page_title="Post")
+            ]
+        )
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(faces=_faces(1), reverse_search=lens_search),
+        )
+        search = _by_name(state, "Reverse Image Search")
+        assert search.state == "complete"
+        assert "1 matching page" in search.detail
+
     def test_not_run_when_face_failed(self):
         state = build_verification_state(
             blockchain_enabled=False, report=_report(status="no_face_detected")
@@ -230,6 +276,37 @@ class TestMetadataStage:
         assert metadata.state == "not_run"
         assert metadata.label == "NOT RUN"
         assert "did not complete" in metadata.detail
+
+    def test_not_run_when_serpapi_blocked(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                faces=_faces(1),
+                reverse_search=None,
+                reverse_search_error=(
+                    "SERPAPI_API_KEY is required (set the SERPAPI_API_KEY environment variable)."
+                ),
+                status="reverse_search_failed",
+            ),
+        )
+        metadata = _by_name(state, "Metadata")
+        assert metadata.state == "not_run"
+        assert metadata.label == "NOT RUN"
+        assert "did not complete" in metadata.detail
+
+    def test_not_run_when_serpapi_failed(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                faces=_faces(1),
+                reverse_search=None,
+                reverse_search_error="SerpApi Google Lens search rate limit exceeded (HTTP 429)",
+                status="reverse_search_failed",
+            ),
+        )
+        metadata = _by_name(state, "Metadata")
+        assert metadata.state == "not_run"
+        assert "failed" in metadata.detail
 
     def test_not_run_when_no_pages_found(self):
         state = build_verification_state(
@@ -422,6 +499,30 @@ class TestOverallState:
         assert state.overall.state == "failed"
         assert any("Reverse Image Search" in issue for issue in state.overall.issues)
         assert "could not run" in state.overall.detail
+
+    def test_failed_when_serpapi_blocked(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                status="reverse_search_failed",
+                reverse_search_error="SERPAPI_API_KEY is required.",
+            ),
+        )
+        assert state.overall.state == "failed"
+        assert state.overall.label == "VERIFICATION FAILED"
+        assert any("Reverse Image Search" in issue for issue in state.overall.issues)
+        assert "could not run" in state.overall.detail
+
+    def test_failed_when_serpapi_failed(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                status="reverse_search_failed",
+                reverse_search_error="SerpApi Google Lens search timed out",
+            ),
+        )
+        assert state.overall.state == "failed"
+        assert "reverse image search failed" in state.overall.detail.lower()
 
     def test_failed_when_no_face(self):
         state = build_verification_state(

@@ -1,6 +1,8 @@
-# Google Cloud Vision — reverse image search setup
+# Google Cloud Vision — legacy reverse image search setup
 
-Enables the **Reverse Image Search** stage: `ImageAnnotatorClient.web_detection` finds public pages where the input image (or a visually similar one) appears.
+> **Legacy / optional.** The default reverse image search provider is now **SerpApi Google Lens** (see [serpapi.md](serpapi.md)). This guide is retained for running the legacy `GoogleVisionSearcher`, which is not the default.
+
+Enables the **Reverse Image Search** stage via the legacy provider: `ImageAnnotatorClient.web_detection` finds public pages where the input image (or a visually similar one) appears.
 
 ## Prerequisites
 
@@ -69,6 +71,8 @@ python -m pytest "tests/test_reverse_search_integration.py" -m integration -q
 ```
 
 If the API is enabled and ADC resolves, the test performs a real `web_detection` request. If anything is misconfigured, the test fails or the pipeline reports the Reverse Image Search stage as **BLOCKED** with an authentication/billing message.
+
+> This test targets the legacy `GoogleVisionSearcher` directly. The default pipeline provider is SerpApi Google Lens and is tested via `tests/test_serpapi_integration.py`.
 
 ## What you should NOT do
 

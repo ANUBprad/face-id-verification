@@ -4,9 +4,14 @@ Symptoms, causes, and fixes. The web interface reports one of `complete` / `fail
 
 ## Reverse Image Search is **BLOCKED**
 
-Cause: the Google Cloud Vision stage cannot obtain credentials or the API/billing is unavailable. The detail message contains the underlying error (e.g., "could not automatically determine credentials", "invalid authentication credentials", "billing").
+Cause: the reverse-image stage cannot obtain provider credentials (or the provider is rejecting them). The detail message contains the underlying error.
 
-Fixes:
+For the **default SerpApi Google Lens** provider, BLOCKED means `SERPAPI_API_KEY` is missing or invalid:
+
+- Set `SERPAPI_API_KEY` to a valid key (see `docs/setup/serpapi.md`).
+- A rate limit or a rejected request surfaces as **FAILED** with the underlying HTTP status, not BLOCKED.
+
+For the **legacy Google Cloud Vision** provider, BLOCKED means the stage cannot obtain credentials or the API/billing is unavailable (e.g., "could not automatically determine credentials", "invalid authentication credentials", "billing"):
 
 - Set `GOOGLE_APPLICATION_CREDENTIALS` to a valid service-account JSON, or run `gcloud auth application-default login` with the right project selected (see `docs/setup/gcp.md`).
 - Verify the Cloud Vision API is enabled: `gcloud services list --enabled | findstr vision` / `grep vision`.

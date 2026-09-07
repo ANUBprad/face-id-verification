@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from face_id_verification.reverse_search import (
-    ReverseImageSearcher,
+    GoogleVisionSearcher,
     ReverseSearchError,
 )
 
@@ -30,7 +30,7 @@ _require_gcv = pytest.mark.skipif(
 
 @_require_gcv
 def test_real_web_detection_structural(gcv_test_image: Path):
-    searcher = ReverseImageSearcher(timeout=30)
+    searcher = GoogleVisionSearcher(timeout=30)
     result = searcher.search(gcv_test_image)
 
     assert isinstance(result.pages_with_matching_images, list)
@@ -63,13 +63,13 @@ def test_real_web_detection_structural(gcv_test_image: Path):
 
 @_require_gcv
 def test_real_no_match_is_not_error(gcv_test_image: Path):
-    searcher = ReverseImageSearcher(timeout=30)
+    searcher = GoogleVisionSearcher(timeout=30)
     result = searcher.search(gcv_test_image)
     assert result is not None
 
 
 @_require_gcv
 def test_image_read_error_is_surfaceable():
-    searcher = ReverseImageSearcher(timeout=30)
+    searcher = GoogleVisionSearcher(timeout=30)
     with pytest.raises(ReverseSearchError, match="does not exist"):
         searcher.search("/nonexistent/gcv-image.jpg")

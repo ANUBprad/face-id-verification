@@ -28,7 +28,7 @@ Face detection and face embeddings are used as **evidence components** in a fing
 
 - **Local face detection & representation** — InsightFace `buffalo_l`, CPU inference.
 - **Exactly-one-face enforcement** — the production pipeline requires a single clear face.
-- **Genuine reverse-image discovery** — real Google Cloud Vision Web Detection API calls; no hardcoded or predetermined results.
+- **Genuine reverse-image discovery** — real SerpApi Google Lens reverse-image API calls (default); no hardcoded or predetermined results.
 - **Post metadata extraction** — OpenGraph / Twitter / standard meta tags from discovered pages.
 - **Deterministic verification hash** — SHA-256 fingerprints for the image and embedding; the final record hash is Keccak-256 over the canonical evidence payload.
 - **Optional Ethereum Sepolia anchoring** — real transactions when enabled; duplicate hashes rejected.
@@ -41,7 +41,7 @@ Face detection and face embeddings are used as **evidence components** in a fing
 |---|---|
 | Face detection / embeddings | InsightFace (`buffalo_l`), RetinaFace-based detection, ArcFace 512-dim embeddings |
 | Image processing / numerics | OpenCV, NumPy, onnxruntime |
-| Reverse image search | Google Cloud Vision Web Detection |
+| Reverse image search | SerpApi Google Lens (default); Google Cloud Vision Web Detection (legacy) |
 | Metadata extraction | requests + standard HTML/meta parsing |
 | Blockchain | web3.py, py-solc-x, Solidity `^0.8.28` |
 | Web | FastAPI, uvicorn |
@@ -70,7 +70,8 @@ Secrets are read from environment variables at runtime and are never stored in s
 
 | Variable | Required for | Notes |
 |---|---|---|
-| `GOOGLE_APPLICATION_CREDENTIALS` | reverse image search | Path to a Google Cloud service-account JSON. Optional — the Google client falls back to Application Default Credentials (`gcloud auth application-default login`) when unset. |
+| `SERPAPI_API_KEY` | reverse image search (default provider) | SerpApi Google Lens API key. Without it the stage is reported **BLOCKED**. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | reverse image search (legacy provider) | Path to a Google Cloud service-account JSON, used only by the optional legacy `GoogleVisionSearcher`. Falls back to Application Default Credentials when unset. |
 | `SEPOLIA_RPC_URL` | blockchain recording | HTTPS Sepolia RPC endpoint (any provider). |
 | `SEPOLIA_PRIVATE_KEY` | blockchain recording / deployment | Private key of a Sepolia test account funded with test ETH. |
 
@@ -152,11 +153,12 @@ The report is printed as JSON (and optionally written to `--output-dir/verificat
 
 ## Reverse image search
 
-The pipeline performs genuine reverse-image discovery via **Google Cloud Vision Web Detection** (`ImageAnnotatorClient.web_detection` on the raw image bytes). Responses are parsed into matching pages, full/partial/visually similar image matches, web entities, and best-guess labels.
+The pipeline performs genuine reverse-image discovery via **SerpApi Google Lens** (the default provider): it uploads the image bytes, runs a real `google_lens` search, and parses the returned source-page links into matching pages. Responses come from the real API response — **nothing is hardcoded or preselected**, and a silent substitution by a plain text web search is never made.
 
-- Results come from the real API response — **nothing is hardcoded or preselected**, and a silent substitution by a plain text web search is never made.
 - An image with no public matches is reported as a valid (non-error) "no match" result.
-- Live operation requires Google Cloud credentials and an enabled, billable project (`GOOGLE_APPLICATION_CREDENTIALS` or ADC). Without them the stage is reported **BLOCKED** with the underlying authentication/billing reason, rather than faked.
+- Images larger than the provider's 500 KB upload limit are compressed in memory (never overwriting the original file or its content hash).
+- Live operation requires `SERPAPI_API_KEY`. Without it the stage is reported **BLOCKED** with the underlying reason, rather than faked.
+- A legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still available and tested, but is not the default.
 
 ## Metadata extraction
 
@@ -231,7 +233,7 @@ src/face_id_verification/
 ├── cli.py                     # command-line interface (argparse, exit codes)
 ├── pipeline.py                # VerificationPipeline orchestration + VerificationReport
 ├── face_detection.py          # InsightFace buffalo_l detection + 512-d embeddings
-├── reverse_search.py          # Google Cloud Vision Web Detection client
+├── reverse_search.py          # SerpApi Google Lens (default) + legacy GCV clients
 ├── metadata_extraction.py     # HTTP fetch + OpenGraph/Twitter meta parsing
 ├── blockchain_recording.py    # Sepolia deployment, recording, on-chain verification
 ├── py.typed
@@ -245,7 +247,8 @@ src/face_id_verification/
 
 tests/                         # unit/behavior tests + credential-gated integration tests
 docs/
-├── setup/gcp.md               # Google Cloud Vision credentials setup
+├── setup/serpapi.md           # SerpApi Google Lens (default) credentials setup
+├── setup/gcp.md               # Google Cloud Vision legacy credentials setup
 ├── setup/sepolia.md           # RPC + test ETH setup
 ├── setup/contract.md          # contract deployment walkthrough
 └── troubleshooting.md
@@ -260,19 +263,19 @@ python -m pytest -m "not integration"   # fast, offline unit/behavior tests
 python -m pytest                        # adds credential-gated integration tests (skipped without creds)
 ```
 
-Integration tests are marked `integration` and gated: Google Cloud Vision tests require valid ADC with a project; Sepolia tests require `SEPOLIA_RPC_URL` + `SEPOLIA_PRIVATE_KEY`. Verified on the latest run: **248 passed, 8 skipped**. (Counts reflect the suite at that commit.)
+Integration tests are marked `integration` and gated: SerpApi tests require `SERPAPI_API_KEY`; legacy Google Cloud Vision tests require valid ADC with a project; Sepolia tests require `SEPOLIA_RPC_URL` + `SEPOLIA_PRIVATE_KEY`. (Counts reflect the suite at that commit.)
 
 ## Current status / live demo readiness
 
 - **Local pipeline, CLI, and web UI** — fully functional and tested, no credentials required. An untested image can be run end-to-end locally at `--skip-blockchain` or via the browser.
 - **Blockchain** — implementation, contract (`VerificationRegistry.sol`), and deployment logic (gas-estimated, Sepolia-enforced) are complete and covered by credential-gated integration tests. A live record requires a funded Sepolia account and a deployed contract address; the project ships **no deployed address**.
-- **Reverse image search** — genuine GCV Web Detection is implemented and integration-tested behind credentials, but **live execution requires Google Cloud credentials/billing**; without them the stage is reported **BLOCKED**.
+- **Reverse image search** — genuine SerpApi Google Lens (default) and legacy GCV Web Detection are implemented and integration-tested behind credentials, but **live execution requires a `SERPAPI_API_KEY`** (or legacy GCP credentials); without them the stage is reported **BLOCKED**.
 
-The full end-to-end live demo therefore requires Google Cloud credentials **and** a Sepolia setup. Local-only demos run the installed package with `--skip-blockchain`.
+The full end-to-end live demo therefore requires a SerpApi API key **and** a Sepolia setup. Local-only demos run the installed package with `--skip-blockchain`.
 
 ## Limitations
 
-- Reverse image search depends on the Google index and requires an enabled, billable Google Cloud project.
+- Reverse image search depends on the provider's index and requires a SerpApi API key (the legacy Google Cloud Vision provider additionally requires an enabled, billable project).
 - Not every image has a public match; a genuine no-match is a valid result, so reverse search does not guarantee discovery.
 - Metadata extraction only works on public, HTTP-reachable pages.
 - Sepolia recording and deployment need a funded test account; test ETH has no real-world value.

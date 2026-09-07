@@ -1108,7 +1108,7 @@
 </main>
 
 <footer class="site">
-  <p>MukhdaX &middot; Reverse image search via Google Cloud Vision &middot; Tamper-evident anchoring on Ethereum Sepolia (chain ID 11155111)</p>
+  <p>MukhdaX &middot; Reverse image search via SerpApi Google Lens &middot; Tamper-evident anchoring on Ethereum Sepolia (chain ID 11155111)</p>
 </footer>
 
 <script>
@@ -1657,7 +1657,7 @@
 
     if (stage.state === "blocked") {
       html += note("warn", "<b>BLOCKED.</b> " + esc(stage.detail || "The search provider could not run."));
-      html += '<p class="placeholder">Google Cloud Vision credentials are not configured on the server. Configure GOOGLE_APPLICATION_CREDENTIALS and retry.</p>';
+      html += '<p class="placeholder">SerpApi API key is not configured on the server. Configure SERPAPI_API_KEY and retry.</p>';
       if (report.reverse_search_error) {
         html += '<p class="placeholder mt">Server detail: ' + esc(report.reverse_search_error) + '</p>';
       }
@@ -1695,7 +1695,7 @@
     var labels = rs.best_guess_labels || [];
 
     html += '<div class="kv mb">';
-    html += '<div class="k">Provider</div><div class="v">Google Cloud Vision</div>';
+    html += '<div class="k">Provider</div><div class="v">SerpApi Google Lens</div>';
     html += '<div class="k">Search status</div><div class="v">Completed</div>';
     html += '</div>';
 

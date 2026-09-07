@@ -13,6 +13,7 @@ _STATE_LABELS = {
 }
 
 _REVERSE_BLOCK_MARKERS = (
+    "SERPAPI_API_KEY",
     "GOOGLE_APPLICATION_CREDENTIALS",
     "Application Default Credentials",
     "could not automatically determine credentials",
@@ -85,6 +86,8 @@ def _reverse_search_stage(report: VerificationReport, face_failed: bool) -> Stag
     similar = len(search.visually_similar_images)
     if pages == 0 and full == 0 and partial == 0 and similar == 0:
         detail = "Public web searched; no matching pages or images found."
+    elif full == 0 and partial == 0:
+        detail = f"Found {pages} matching page(s)."
     else:
         detail = f"Found {pages} page(s), {full} full and {partial} partial image match(es)."
     return _stage("Reverse Image Search", "complete", detail)

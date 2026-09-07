@@ -16,6 +16,7 @@ from web3 import Web3
 from face_id_verification.blockchain_recording import SEPOLIA_CHAIN_ID
 from face_id_verification.face_detection import FaceAnalyzer
 from face_id_verification.pipeline import VerificationPipeline, VerificationReport
+from face_id_verification.reverse_search import _image_kind
 from face_id_verification.web.state import build_verification_state
 
 logger = logging.getLogger(__name__)
@@ -27,16 +28,6 @@ DEFAULT_TIMEOUT = 30.0
 MAX_TIMEOUT = 300.0
 
 _SHARED_FACE_ANALYZER = FaceAnalyzer()
-
-
-def _image_kind(data: bytes) -> str | None:
-    if data.startswith(b"\xff\xd8\xff"):
-        return "JPEG"
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "PNG"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "WebP"
-    return None
 
 
 def _save_upload(content: bytes) -> Path:

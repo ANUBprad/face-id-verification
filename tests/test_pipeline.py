@@ -19,8 +19,10 @@ from face_id_verification.pipeline import (
 )
 from face_id_verification.reverse_search import (
     MatchingPage,
+    ReverseImageSearcher,
     ReverseSearchError,
     ReverseSearchResult,
+    SerpApiLensSearcher,
     WebEntity,
     WebImage,
 )
@@ -272,6 +274,51 @@ class TestMetadataPartialFailure:
         assert report.status == "metadata_failed"
         assert len(report.metadata) == 1
         assert report.metadata[0].error is not None
+
+
+class TestSerpApiDefaultProvider:
+    def test_reverse_image_searcher_alias_is_serpapi(self):
+        assert ReverseImageSearcher is SerpApiLensSearcher
+
+    def test_default_searcher_used_when_none_given(self):
+        with patch("face_id_verification.pipeline.FaceAnalyzer"), \
+             patch("face_id_verification.pipeline.ReverseImageSearcher") as mock_rs:
+            VerificationPipeline(timeout=20.0)
+            mock_rs.assert_called_once_with(timeout=20.0)
+
+    def test_missing_key_reports_reverse_search_failed(self, sample_image, monkeypatch):
+        monkeypatch.delenv("SERPAPI_API_KEY", raising=False)
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            metadata_extractor=lambda url: _make_metadata(),
+            blockchain_enabled=False,
+        )
+        report = pipeline.verify(sample_image)
+        assert report.status == "reverse_search_failed"
+        assert "SERPAPI_API_KEY is required" in report.reverse_search_error
+        assert report.metadata == []
+        assert report.verification_hash is not None
+
+    def test_lens_pages_only_result_flows_to_metadata(self, sample_image):
+        search = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+        )
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=False,
+        )
+        report = pipeline.verify(sample_image)
+        assert report.status == "success"
+        assert len(report.metadata) == 1
+        assert report.metadata[0].source_url == "https://example.com/page"
 
 
 class TestBlockchainDisabled:

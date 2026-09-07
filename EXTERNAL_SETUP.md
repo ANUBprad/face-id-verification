@@ -2,7 +2,8 @@
 
 This document explains the external services the pipeline depends on, why they were chosen, and how the failure paths are handled. Step-by-step configuration lives in the setup guides:
 
-- [docs/setup/gcp.md](docs/setup/gcp.md) — Google Cloud Vision (reverse image search)
+- [docs/setup/serpapi.md](docs/setup/serpapi.md) — SerpApi Google Lens (reverse image search, default)
+- [docs/setup/gcp.md](docs/setup/gcp.md) — Google Cloud Vision (legacy reverse image search)
 - [docs/setup/sepolia.md](docs/setup/sepolia.md) — Sepolia RPC + test ETH
 - [docs/setup/contract.md](docs/setup/contract.md) — deploying `VerificationRegistry`
 - [docs/troubleshooting.md](docs/troubleshooting.md) — common problems and fixes
@@ -11,18 +12,22 @@ This document explains the external services the pipeline depends on, why they w
 
 | Service | Used for | Requires | Fails gracefully as |
 |---|---|---|---|
-| Google Cloud Vision Web Detection | genuine reverse-image discovery | ADC + enabled, billable project | `reverse_image_search` → **BLOCKED** |
+| SerpApi Google Lens | genuine reverse-image discovery (default) | `SERPAPI_API_KEY` | `reverse_image_search` → **BLOCKED** |
+| Google Cloud Vision Web Detection (legacy) | optional reverse-image discovery | ADC + enabled, billable project | `reverse_image_search` → **BLOCKED** |
 | Public web pages | metadata extraction | an HTTP-reachable page | `metadata` → **NOT RUN** or error |
 | Sepolia JSON-RPC endpoint | on-chain recording & lookups | any Sepolia RPC provider | `blockchain` → **BLOCKED** when env vars missing |
 | Sepolia faucet | test ETH for gas | a testnet wallet | blockchain → **BLOCKED** ("zero balance") |
 
-## Why Google Cloud Vision for reverse image discovery
+## Why SerpApi Google Lens for reverse image discovery
 
-The pipeline must perform **genuine reverse-image discovery** — given a face image, find the public pages where that image (or a visually similar one) already appears. Google Cloud Vision's Web Detection API performs real visual web search against Google's index:
+The pipeline must perform **genuine reverse-image discovery** — given a face image, find the public pages where that image (or a visually similar one) already appears. SerpApi's Google Lens engine performs real visual web search against Google's image index:
 
-- It is a real provider with a real API, not a screen-scrape hack or a hardcoded result.
-- It returns the identities of matching pages, full/partial image matches, and visually similar images.
-- The request is made with `ImageAnnotatorClient.web_detection`; the results are taken from the actual response.
+- It is a real provider with a real API (upload the bytes, then query Google Lens), not a screen-scrape hack or a hardcoded result.
+- The two-step flow uploads the image bytes to `https://serpapi.com/image`, then runs a `google_lens` search with the returned `image_id`.
+- The request is made with the standard `requests` library; results are parsed from the actual response's `visual_matches` / `results` sections.
+- Images larger than the provider's 500 KB upload limit are compressed in memory (never overwriting the original) to fit the provider's constraint.
+
+The legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still present and tested, but is **not** the default provider.
 
 ### The anti-fake rule
 
@@ -32,16 +37,16 @@ The pipeline will never:
 - silently replace reverse image search with a plain text web search,
 - claim success when the provider failed.
 
-If the provider cannot run (missing credentials, expired auth, billing issues, outage), the failure is **reported truthfully** — the stage is marked **BLOCKED** (external dependency) and processing stops, rather than fabricating a result.
+If the provider cannot run (missing credentials, expired auth, rate limiting, outage), the failure is **reported truthfully** — the stage is marked **BLOCKED** (external dependency) or **FAILED** and processing stops, rather than fabricating a result.
 
-### Authentication (Application Default Credentials)
+### Authentication (SerpApi API key)
 
-The Google client libraries use Application Default Credentials (ADC). Two supported ways:
+The default provider needs a single API key:
 
-1. Set `GOOGLE_APPLICATION_CREDENTIALS` to the path of a service-account key JSON.
-2. Run `gcloud auth application-default login` and keep a project with the Cloud Vision API enabled active.
+1. Sign up at [SerpApi](https://serpapi.com) and create an API key.
+2. Set the `SERPAPI_API_KEY` environment variable.
 
-Both are documented in detail in [docs/setup/gcp.md](docs/setup/gcp.md).
+Full configuration is documented in [docs/setup/serpapi.md](docs/setup/serpapi.md).
 
 ## Why Sepolia
 
@@ -92,7 +97,8 @@ A run with no external credentials still completes all local stages and produces
 
 ## Known limitations
 
-- Reverse image search depends on the Google index: an image with no public occurrences returns a genuine "no match", reported as a valid non-error result.
+- Reverse image search depends on the provider's index: an image with no public occurrences returns a genuine "no match", reported as a valid non-error result.
 - Metadata extraction only works on public, HTTP-reachable pages (401/403/429 and 5xx are surfaced as errors, not guessed).
-- Billing: the Cloud Vision API must be enabled and billable in the project; unenabled API or disabled billing is reported as a **BLOCKED** stage.
+- SerpApi limits uploads to 500 KB; larger images are compressed in memory to fit the constraint (the original file and its content hash are never altered).
+- The legacy Google Cloud Vision provider requires an enabled, billable project; an unenabled API or disabled billing is reported as a **BLOCKED** stage.
 - Sepolia test ETH has no real-world value; it exists only to pay the gas for demo transactions.

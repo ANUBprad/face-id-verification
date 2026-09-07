@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from face_id_verification.reverse_search import (
+    GoogleVisionSearcher,
     MatchingPage,
-    ReverseImageSearcher,
     ReverseSearchError,
     ReverseSearchResult,
     WebEntity,
@@ -171,7 +171,7 @@ class TestParseWebDetection:
         assert isinstance(result, ReverseSearchResult)
 
 
-class TestReverseImageSearcher:
+class TestGoogleVisionSearcher:
     def test_search_calls_api(self, tmp_path: Path):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
@@ -188,7 +188,7 @@ class TestReverseImageSearcher:
         mock_client = MagicMock()
         mock_client.web_detection.return_value = mock_response
 
-        searcher = ReverseImageSearcher()
+        searcher = GoogleVisionSearcher()
         searcher._client = mock_client
 
         result = searcher.search(img_path)
@@ -212,7 +212,7 @@ class TestReverseImageSearcher:
         mock_client = MagicMock()
         mock_client.web_detection.return_value = mock_response
 
-        searcher = ReverseImageSearcher(timeout=12.5)
+        searcher = GoogleVisionSearcher(timeout=12.5)
         searcher._client = mock_client
 
         searcher.search(img_path)
@@ -221,7 +221,7 @@ class TestReverseImageSearcher:
         assert kwargs.get("timeout") == 12.5
 
     def test_missing_file(self):
-        searcher = ReverseImageSearcher()
+        searcher = GoogleVisionSearcher()
         with pytest.raises(ReverseSearchError, match="does not exist"):
             searcher.search("/nonexistent/image.jpg")
 
@@ -230,7 +230,7 @@ class TestReverseImageSearcher:
         img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
 
         with patch.dict("sys.modules", {"google.cloud.vision": None}):
-            searcher = ReverseImageSearcher()
+            searcher = GoogleVisionSearcher()
             with pytest.raises(ReverseSearchError, match="Failed to initialize"):
                 searcher.search(img_path)
 
@@ -244,7 +244,7 @@ class TestReverseImageSearcher:
         mock_client = MagicMock()
         mock_client.web_detection.return_value = mock_response
 
-        searcher = ReverseImageSearcher()
+        searcher = GoogleVisionSearcher()
         searcher._client = mock_client
 
         with pytest.raises(ReverseSearchError, match="quota exceeded"):
@@ -257,7 +257,7 @@ class TestReverseImageSearcher:
         mock_client = MagicMock()
         mock_client.web_detection.side_effect = Exception("network error")
 
-        searcher = ReverseImageSearcher()
+        searcher = GoogleVisionSearcher()
         searcher._client = mock_client
 
         with pytest.raises(ReverseSearchError, match="API request failed"):

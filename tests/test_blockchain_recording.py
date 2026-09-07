@@ -24,6 +24,7 @@ from face_id_verification.blockchain_recording import (
     record_verification,
     verify_on_chain,
     _assert_sufficient_balance,
+    _canonical_tx_hash,
     _estimate_deployment_gas,
     _validate_chain,
 )
@@ -61,6 +62,31 @@ class TestComputeVerificationHash:
         h = compute_verification_hash({})
         assert h.startswith("0x")
         assert len(h) == 66
+
+
+class TestCanonicalTxHash:
+    def test_unprefixed_hex_bytes_get_prefix(self):
+        digest = Web3.keccak(b"tx-probe")
+        assert _canonical_tx_hash(digest) == "0x" + digest.hex()
+
+    def test_unprefixed_string_gets_single_prefix(self):
+        digest = Web3.keccak(b"tx-probe")
+        assert _canonical_tx_hash(digest.hex()) == "0x" + digest.hex()
+
+    def test_prefixed_value_preserved(self):
+        digest = Web3.keccak(b"tx-probe")
+        value = "0x" + digest.hex()
+        assert _canonical_tx_hash(value) == value
+
+    def test_never_double_prefixes(self):
+        digest = Web3.keccak(b"tx-probe")
+        result = _canonical_tx_hash("0x" + digest.hex())
+        assert result.startswith("0x")
+        assert "0x0x" not in result
+
+    def test_preserves_hash_value(self):
+        digest = Web3.keccak(b"tx-probe")
+        assert _canonical_tx_hash(digest)[2:] == digest.hex()
 
 
 class TestBlockchainRecord:
@@ -318,6 +344,41 @@ class TestRecordVerificationMocked:
                     )
         contract.functions.recordVerification.assert_not_called()
 
+    def test_confirmed_record_normalizes_tx_hash(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        contract = self._contract_with(False)
+        mock_w3.eth.contract.return_value = contract
+        mock_w3.eth.get_balance.return_value = 10**18
+        mock_w3.eth.get_transaction_count.return_value = 7
+        tx_hash = Web3.keccak(b"record-tx")
+        mock_w3.eth.send_raw_transaction.return_value = tx_hash
+        mock_w3.eth.wait_for_transaction_receipt.return_value = MagicMock(
+            status=1, blockNumber=123
+        )
+
+        payload = {"payload": "normalization"}
+        verification_hash = compute_verification_hash(payload)
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3", self._patch_web3(mock_w3)):
+                result = record_verification(
+                    "0x1234567890abcdef1234567890abcdef12345678",
+                    payload,
+                )
+
+        canonical = "0x" + tx_hash.hex()
+        assert result.confirmed is True
+        assert result.duplicate is False
+        assert result.block_number == 123
+        assert result.transaction_hash == canonical
+        assert result.transaction_hash.startswith("0x")
+        assert "0x0x" not in result.transaction_hash
+        assert result.transaction_hash[2:] == tx_hash.hex()
+        assert result.verification_hash == verification_hash
+        assert result.explorer_url == f"https://sepolia.etherscan.io/tx/{canonical}"
+        assert result.transaction_hash in result.explorer_url
+
 
 class TestVerifyOnChainMocked:
     def test_returns_exists_without_private_key(self):
@@ -462,7 +523,8 @@ class TestDeployContractGasEstimation:
         assert built["chainId"] == SEPOLIA_CHAIN_ID
         assert built["gasPrice"] is not None
         assert record.contract_address == "0x" + "cd" * 20
-        assert record.transaction_hash == Web3.keccak(b"deploy-tx").hex()
+        assert record.transaction_hash == "0x" + Web3.keccak(b"deploy-tx").hex()
+        assert record.transaction_hash.startswith("0x")
         assert record.chain_id == SEPOLIA_CHAIN_ID
 
     def test_reverted_receipt_fails_deployment(self):

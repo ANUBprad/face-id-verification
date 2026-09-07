@@ -56,6 +56,11 @@ def compute_verification_hash(data: dict) -> str:
     return "0x" + digest.hex()
 
 
+def _canonical_tx_hash(tx_hash: bytes | str) -> str:
+    hex_value = tx_hash.hex() if isinstance(tx_hash, bytes) else tx_hash
+    return hex_value if hex_value.startswith("0x") else f"0x{hex_value}"
+
+
 def _load_rpc_config() -> str:
     rpc_url = os.environ.get("SEPOLIA_RPC_URL")
     if not rpc_url:
@@ -183,7 +188,7 @@ def deploy_contract(contract_address: str | None = None) -> DeploymentRecord:
     logger.info("Contract deployed at %s (block %d)", address, receipt.blockNumber)
     return DeploymentRecord(
         contract_address=address,
-        transaction_hash=tx_hash.hex(),
+        transaction_hash=_canonical_tx_hash(tx_hash),
         block_number=receipt.blockNumber,
         chain_id=chain_id,
     )
@@ -227,11 +232,12 @@ def record_verification(contract_address: str, verification_data: dict) -> Block
     receipt: TxReceipt = w3.eth.wait_for_transaction_receipt(tx_hash)
 
     confirmed = receipt.status == 1
-    explorer_url = f"{SEPOLIA_EXPLORER_BASE}/{tx_hash.hex()}" if confirmed else None
+    canonical_tx_hash = _canonical_tx_hash(tx_hash)
+    explorer_url = f"{SEPOLIA_EXPLORER_BASE}/{canonical_tx_hash}" if confirmed else None
 
     return BlockchainRecord(
         verification_hash=verification_hash,
-        transaction_hash=tx_hash.hex(),
+        transaction_hash=canonical_tx_hash,
         block_number=receipt.blockNumber,
         confirmed=confirmed,
         explorer_url=explorer_url,

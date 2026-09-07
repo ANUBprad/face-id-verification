@@ -309,14 +309,6 @@ section {
   margin: 0 0 16px;
 }
 
-.hero-logo {
-  display: block;
-  height: clamp(44px, 7vw, 72px);
-  width: auto;
-  object-fit: contain;
-  margin: 0 0 24px;
-}
-
 .hero-sub {
   max-width: 600px;
   color: var(--muted);

@@ -3,7 +3,6 @@ import { ArrowDown } from "lucide-react";
 export default function Hero() {
   return (
     <section className="hero" aria-labelledby="hero-heading">
-      <img className="hero-logo" src="/assets/branding/logo-full.png" alt="MukhdaX" />
       <p className="eyebrow">Digital provenance engine</p>
       <h1 id="hero-heading">
         <span className="block">SEE.</span>

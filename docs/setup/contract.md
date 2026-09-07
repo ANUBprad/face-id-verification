@@ -54,6 +54,15 @@ You can also check any recorded verification hash directly on Sepolia Etherscan 
 
 Recording the same payload twice is detected *before* a transaction is sent (`verificationExists` check). The second attempt returns a `BlockchainRecord` with `duplicate=True` and no transaction hash — no gas is wasted, and the first record stays valid.
 
-## Deployed address status
+## Pre-deployed contract
 
-A contract **is not pre-deployed** in this repository (no address is hardcoded anywhere). Deploy it as above or point the pipeline at an existing `VerificationRegistry` instance with `deploy_contract(contract_address="0x...")`, which validates that code exists at that address.
+A live `VerificationRegistry` instance is deployed on Ethereum Sepolia (chain ID `11155111`) and can be used for read-back checks and demos:
+
+- Contract: `0x76BfcB45C918C13fAAAf79D51f94fE5B29aFEB53`
+- Deployment transaction: `f84d9bb4eb1c2571f81fd918d5fb1b2e462a700b77938167900b8c265c1b8967` (block `11652577`)
+- Example verification transaction: `caad205f4695fd67853af4ce35cd38976bb90eaf2ef644f6edda93e524272790` (block `11652599`)
+- Hash recorded in that verification transaction: `0x632b7ae443fa61c98c2d9d6b0ee45fe022e3c84edd1b81ed723e9fee4bbb80b3`
+
+`verify_on_chain(CONTRACT_ADDRESS, hash_)` and `get_verification_record(CONTRACT_ADDRESS, hash_)` return `exists=True` for that hash — a private-key-free on-chain sanity check that the recorded values match.
+
+You can still deploy your own instance with `deploy_contract()` (above); `deploy_contract(contract_address="0x...")` validates that code exists at an existing address without deploying.

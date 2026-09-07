@@ -270,7 +270,7 @@ Integration tests are marked `integration` and gated: SerpApi tests require `SER
 ## Current status / live demo readiness
 
 - **Local pipeline, CLI, and web UI** — fully functional and tested, no credentials required. An untested image can be run end-to-end locally at `--skip-blockchain` or via the browser.
-- **Blockchain** — implementation, contract (`VerificationRegistry.sol`), and deployment logic (gas-estimated, Sepolia-enforced) are complete and covered by credential-gated integration tests. A live record requires a funded Sepolia account and a deployed contract address; the project ships **no deployed address**.
+- **Blockchain** — implementation, contract (`VerificationRegistry.sol`), and deployment logic (gas-estimated, Sepolia-enforced) are complete and covered by credential-gated integration tests. A live record requires a funded Sepolia account and a deployed contract address; a pre-deployed Sepolia instance is documented in `docs/setup/contract.md`, or you can deploy your own with `deploy_contract()`.
 - **Reverse image search** — genuine SerpApi Google Lens (default) and legacy GCV Web Detection are implemented and integration-tested behind credentials, but **live execution requires a `SERPAPI_API_KEY`** (or legacy GCP credentials); without them the stage is reported **BLOCKED**.
 
 The full end-to-end live demo therefore requires a SerpApi API key **and** a Sepolia setup. Local-only demos run the installed package with `--skip-blockchain`.

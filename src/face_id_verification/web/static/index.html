@@ -151,6 +151,16 @@
     flex: 0 0 auto;
   }
 
+  .site-nav { display: flex; align-items: center; gap: 6px; }
+  .site-nav a {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    padding: 7px 11px;
+    border-radius: 8px;
+  }
+  .site-nav a:hover { color: var(--text); background: var(--surface-2); text-decoration: none; }
+
   .status-badge {
     display: inline-flex;
     align-items: center;
@@ -244,6 +254,36 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow);
   }
+
+  .howitworks { margin-bottom: 26px; }
+  .how-head { margin-bottom: 18px; }
+  .how-head h2 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
+  .how-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .how-step {
+    border: 1px solid var(--border-soft);
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+  .how-num {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .how-step h3 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+  .how-step p { margin: 0; font-size: 13px; color: var(--text-dim); }
 
   .panel-pad { padding: 22px; }
 
@@ -596,7 +636,7 @@
     letter-spacing: 0.03em;
   }
 
-  .result-actions { margin-top: 16px; }
+  .result-actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; }
 
   .result-banner {
     display: flex;
@@ -743,6 +783,36 @@
   .note.danger { border-color: rgba(236, 95, 91, 0.45); background: var(--danger-soft); color: var(--text); }
   .note p { margin: 0; }
 
+  .meta-warnings {
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+  .meta-warnings summary {
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    padding: 11px 14px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--warn);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .meta-warnings summary::-webkit-details-marker { display: none; }
+  .meta-warnings summary:hover { background: var(--surface-2); }
+  .meta-warnings[open] summary .mw-caret { transform: rotate(90deg); }
+  .mw-caret { color: var(--muted); font-size: 10px; transition: transform 0.14s ease; flex: 0 0 auto; }
+  .meta-warnings .mw-body { padding: 4px 14px 14px; }
+  .meta-warnings .mw-body .mw-item { font-size: 13px; color: var(--text-dim); }
+  .meta-warnings .mw-body .mw-item + .mw-item { margin-top: 8px; }
+  .meta-warnings .mw-body .mw-item b { color: var(--text); font-weight: 600; }
+  .meta-warnings .mw-body .mw-item .mw-err { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+
   .kv {
     display: grid;
     grid-template-columns: minmax(150px, 30%) 1fr;
@@ -869,6 +939,9 @@
     font-size: 12.5px;
     border-top: 1px solid var(--border-soft);
   }
+  footer.site p { margin: 0 0 4px; }
+  footer.site .footer-links { color: var(--text-dim); }
+  .footer-note { font-style: italic; color: var(--muted); }
 
   .hidden { display: none !important; }
 
@@ -885,6 +958,7 @@
 
   @media (max-width: 900px) {
     .hero { grid-template-columns: 1fr; gap: 22px; padding: 26px 0 22px; }
+    .how-grid { grid-template-columns: repeat(2, 1fr); }
     .workflow-row { grid-template-columns: repeat(2, 1fr); row-gap: 18px; }
     .workflow-row::before { display: none; }
     .wstep { flex-direction: row; justify-content: flex-start; text-align: left; gap: 10px; }
@@ -897,10 +971,12 @@
     .header-inner { height: 58px; }
     .brand-sub { display: none; }
     .header-status .status-badge.server { display: none; }
+    .how-grid { grid-template-columns: 1fr; }
     .kv { grid-template-columns: 1fr; gap: 2px 0; }
     .kv .k { margin-top: 6px; }
     .hero h1 { font-size: 24px; }
     .workflow-row { grid-template-columns: 1fr; }
+    .result-actions .btn { flex: 1 1 100%; justify-content: center; }
   }
 </style>
 </head>
@@ -922,6 +998,10 @@
       </span>
     </div>
     <div class="header-status">
+      <nav class="site-nav" aria-label="Primary">
+        <a href="#how-it-works">How it works</a>
+        <a href="https://github.com/ANUBprad/face-id-verification" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
       <span class="status-badge network"><span class="dot" aria-hidden="true"></span>SEPOLIA TESTNET</span>
       <span id="server-status" class="status-badge server" data-alive="checking"><span class="dot" aria-hidden="true"></span><span id="server-status-text">Checking</span></span>
     </div>
@@ -997,6 +1077,46 @@
     </div>
   </section>
 
+  <!-- ======= How it works ======= -->
+  <section id="how-it-works" class="howitworks panel panel-pad" aria-labelledby="how-heading">
+    <div class="how-head">
+      <p class="eyebrow">Understand the pipeline</p>
+      <h2 id="how-heading">How it works</h2>
+    </div>
+    <div class="how-grid">
+      <div class="how-step">
+        <span class="how-num" aria-hidden="true">1</span>
+        <h3>Detect &amp; represent the face</h3>
+        <p>The uploaded image is analyzed to detect exactly one face and produce a numerical face representation. Its SHA-256 fingerprint is retained; the raw embedding is never exposed.</p>
+      </div>
+      <div class="how-step">
+        <span class="how-num" aria-hidden="true">2</span>
+        <h3>Discover web evidence</h3>
+        <p>A genuine reverse-image search via SerpApi Google Lens locates public pages carrying matching, related, or visually similar images.</p>
+      </div>
+      <div class="how-step">
+        <span class="how-num" aria-hidden="true">3</span>
+        <h3>Extract post metadata</h3>
+        <p>Matching pages are opened to extract published date, title, description, images, and platform details for provenance context.</p>
+      </div>
+      <div class="how-step">
+        <span class="how-num" aria-hidden="true">4</span>
+        <h3>Fingerprint the evidence</h3>
+        <p>The complete verification payload is reduced to a Keccak-256 fingerprint, creating a tamper-evident digest of the finding.</p>
+      </div>
+      <div class="how-step">
+        <span class="how-num" aria-hidden="true">5</span>
+        <h3>Anchor on-chain</h3>
+        <p>Optional: the fingerprint is recorded as a real transaction on the Ethereum Sepolia testnet, producing a publicly verifiable record linkable to this verification.</p>
+      </div>
+      <div class="how-step">
+        <span class="how-num" aria-hidden="true">6</span>
+        <h3>Review the report</h3>
+        <p>Results are presented as evidence cards with truthful per-stage states and an exportable JSON report for independent verification.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- ======= Workflow ======= -->
   <section id="workflow-section" class="workflow panel panel-pad hidden" aria-labelledby="workflow-heading">
     <div class="workflow-head">
@@ -1018,6 +1138,8 @@
       <p id="result-detail" class="result-detail"></p>
       <p id="result-stat" class="result-stat"></p>
       <div class="result-actions">
+        <button id="download-json" class="btn btn-ghost" type="button">Download JSON</button>
+        <button id="copy-json" class="btn btn-ghost" type="button">Copy JSON</button>
         <button id="new-verification" class="btn btn-ghost" type="button">Run another verification</button>
       </div>
     </section>
@@ -1108,7 +1230,16 @@
 </main>
 
 <footer class="site">
-  <p>MukhdaX &middot; Reverse image search via SerpApi Google Lens &middot; Tamper-evident anchoring on Ethereum Sepolia (chain ID 11155111)</p>
+  <p>MukhdaX &middot; See. Trace. Verify.</p>
+  <p class="footer-links">
+    <a href="#how-it-works">How it works</a>
+    <span aria-hidden="true">&middot;</span>
+    <a href="https://github.com/ANUBprad/face-id-verification" target="_blank" rel="noopener noreferrer">GitHub</a>
+    <span aria-hidden="true">&middot;</span>
+    <span>Reverse image search via SerpApi Google Lens</span>
+  </p>
+  <p class="footer-links">Tamper-evident anchoring on Ethereum Sepolia (chain ID 11155111)</p>
+  <p class="footer-note">Provenance evidence, not identity proof.</p>
 </footer>
 
 <script>
@@ -1188,6 +1319,7 @@
   var selectedFile = null;
   var objectUrl = null;
   var previewDim = { w: 0, h: 0 };
+  var lastData = null;
 
   /* ---------- Utilities ---------- */
 
@@ -1463,6 +1595,7 @@
     var verification = data.verification || {};
     var overall = verification.overall || { state: "failed", label: "FAILED", detail: "", issues: [] };
     pendingStages = stagesById(verification.stages);
+    lastData = data;
 
     renderWorkflow(false);
     stopLoading();
@@ -1777,10 +1910,10 @@
       return;
     }
 
+    var failedItems = [];
     items.forEach(function (m) {
       if (m.error) {
-        html += '<div class="note warn mt"><p><b>' + esc(m.source_url) + '</b></p><p class="mt">Metadata could not be extracted for this page.</p></div>' +
-                '<p class="placeholder mb">' + esc(m.error) + '</p>';
+        failedItems.push(m);
         return;
       }
       html += '<div class="result-item"><div class="kv">';
@@ -1796,6 +1929,18 @@
       if (m.modified_at) html += '<div class="k">Modified</div><div class="v">' + esc(m.modified_at) + '</div>';
       html += '</div></div>';
     });
+
+    if (failedItems.length) {
+      html += '<details class="meta-warnings"><summary>' +
+              '<span>Some sources could not be analyzed (' + failedItems.length + ')</span>' +
+              '<span class="mw-caret" aria-hidden="true">&#9654;</span></summary>' +
+              '<div class="mw-body">';
+      failedItems.forEach(function (m) {
+        html += '<div class="mw-item"><b>' + esc(m.source_url) + '</b>' +
+                '<span class="mw-err">' + esc(m.error) + '</span></div>';
+      });
+      html += '</div></details>';
+    }
 
     if ((report.metadata_errors || []).length) {
       html += '<p class="ri-label mt mb">Extraction warnings (' + report.metadata_errors.length + ')</p>';
@@ -1886,6 +2031,73 @@
     workflowSection.classList.add("hidden");
     window.scrollTo({ top: 0, behavior: "auto" });
   });
+
+  /* ---------- JSON export ---------- */
+
+  function stampForFile() {
+    var d = new Date();
+    function pad(n) { return String(n).padStart(2, "0"); }
+    return d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) + "-" +
+           pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + pad(d.getUTCSeconds());
+  }
+
+  function downloadJSON() {
+    if (!lastData) return;
+    var blob = new Blob([JSON.stringify(lastData, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    var report = lastData.report || {};
+    var short = report.verification_hash ? report.verification_hash.slice(2, 10) : "report";
+    a.href = url;
+    a.download = "mukhdax-verification-" + short + "-" + stampForFile() + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function copyJSON() {
+    if (!lastData) return;
+    var done = function () { flashLabel("copy-json", "Copied"); };
+    var text = JSON.stringify(lastData, null, 2);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+        ta.remove();
+        done();
+      });
+    } else {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+      ta.remove();
+      done();
+    }
+  }
+
+  function flashLabel(id, text) {
+    var el = document.getElementById(id);
+    var prev = el.textContent;
+    el.textContent = text;
+    el.dataset.copied = "true";
+    window.setTimeout(function () {
+      el.textContent = prev;
+      el.dataset.copied = "false";
+    }, 1400);
+  }
+
+  document.getElementById("download-json").addEventListener("click", downloadJSON);
+  document.getElementById("copy-json").addEventListener("click", copyJSON);
 
   /* ---------- Copy handling ---------- */
 

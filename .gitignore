@@ -3,6 +3,13 @@
 .env.*
 !.env.example
 
+# Local personal test images (never to be committed)
+anubhab.jpg
+lalo.png
+me.JPG
+pfp.png
+serpapi_test.jpg
+
 # Python
 __pycache__/
 *.py[cod]

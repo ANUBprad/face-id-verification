@@ -73,7 +73,12 @@ Read-only verification (`verificationExists`, `getRecord`) requires only `SEPOLI
 ## Hashing: what is hashed and why
 
 1. **Fingerprints (SHA-256)** — `image_content_hash` and `embedding_hash` make the report tamper-evident without exposing the embedding itself.
-2. **Verification hash (Keccak-256)** — `Web3.keccak` over the canonical JSON of the face representation + reverse-search + metadata results. Deterministic: identical pipeline inputs always yield the identical hash, so a later run (or any external party) can recompute and compare against the on-chain record.
+2. **Verification hash (Keccak-256)** — `Web3.keccak` over the canonical JSON of the face representation + reverse-search + metadata results, serialized under the versioned `mukhdax/v1` schema (sorted keys, compact separators, `ensure_ascii`, integers only — confidences as parts-per-million). The same evidence therefore always yields the same hash, so a later run (or any external party) can recompute and compare against the on-chain record.
+
+Two caveats worth stating plainly:
+
+- This is a guarantee about **serialization**, not about model inference. The `embedding_hash` derives from an ArcFace/ONNX Runtime embedding, which is not guaranteed bit-identical across library versions or CPU architectures, so a recomputation on a different machine may legitimately differ.
+- Records created before schema versioning used an unversioned algorithm. They remain valid and are reproduced by `compute_legacy_verification_hash()`. Because the contract stores a bare `bytes32`, the schema is recorded in the report (`verification_schema`), not on-chain.
 
 ## Failure philosophy
 

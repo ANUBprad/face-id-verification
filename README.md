@@ -22,7 +22,7 @@ A single input image flows through a real, multi-stage pipeline. Every stage rep
 
 ```mermaid
 flowchart TD
-    A[Face / Image Input] --> B[Face Detection<br/>InsightFace · buffalo_l · RetinaFace]
+    A[Face / Image Input] --> B[Face Detection<br/>InsightFace · buffalo_l · SCRFD]
     B --> C{Exactly one face?}
     C -->|0 or multiple| E1[Report: no_face_detected<br/>or multiple_faces]
     C -->|one face| D[Face Representation<br/>ArcFace 512-dim · SHA-256 fingerprint]
@@ -66,7 +66,7 @@ The output is a verifiable record of *the content analyzed*: which face was dete
 
 ## Features
 
-- **Local face detection & representation** — InsightFace `buffalo_l` on CPU; RetinaFace-based detection and ArcFace 512-dimensional embeddings (`MODEL_NAME = "buffalo_l"`, `EMBEDDING_DIMENSION = 512`).
+- **Local face detection & representation** — InsightFace `buffalo_l` on CPU; SCRFD detection and ArcFace 512-dimensional embeddings (`MODEL_NAME = "buffalo_l"`, `EMBEDDING_DIMENSION = 512`).
 - **Exactly-one-face enforcement** — 0 faces or multiple faces short-circuit to an explicit report status.
 - **Genuine reverse-image discovery** — real SerpApi Google Lens calls; no hardcoded or predetermined results.
 - **Metadata extraction** — public source pages are parsed for canonical URL, title, description, images, dates, site name, content type, and platform.
@@ -90,7 +90,7 @@ The output is a verifiable record of *the content analyzed*: which face was dete
 | Aspect | Implementation |
 |---|---|
 | Model pack | InsightFace `buffalo_l` (CPU inference) |
-| Detection | RetinaFace-based detector from the pack |
+| Detection | SCRFD detector from the pack (`det_10g.onnx`) |
 | Embedding | ArcFace, **512 dimensions** |
 | Exactly-one-face rule | 0 faces → `no_face_detected`; multiple → `multiple_faces`; model failure → `face_detection_failed` |
 | Raw embedding | computed in memory, hashed with SHA-256 (`embedding_hash`), never stored or transmitted raw |
@@ -210,7 +210,7 @@ When a stage cannot run, the report says so explicitly: e.g. `reverse_search_err
 
 | Area | Technology |
 |---|---|
-| Computer vision | InsightFace (`buffalo_l`), RetinaFace detection, ArcFace 512-dim embeddings, OpenCV, NumPy, onnxruntime |
+| Computer vision | InsightFace (`buffalo_l`), SCRFD detection, ArcFace 512-dim embeddings, OpenCV, NumPy, onnxruntime |
 | Reverse image search | SerpApi Google Lens API (default); Google Cloud Vision Web Detection (legacy) |
 | Metadata | `requests` + standard HTML / OpenGraph / Twitter meta parsing |
 | Blockchain | `web3.py`, `py-solc-x` (solc 0.8.28), Solidity `^0.8.28`, Ethereum Sepolia |

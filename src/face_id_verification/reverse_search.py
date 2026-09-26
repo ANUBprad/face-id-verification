@@ -107,7 +107,7 @@ def _prepare_upload_bytes(data: bytes) -> bytes:
     )
 
 
-def _source_page_url(value: str | None) -> str | None:
+def _http_url(value: object) -> str | None:
     if not isinstance(value, str):
         return None
     parsed = urlparse(value)
@@ -116,24 +116,96 @@ def _source_page_url(value: str | None) -> str | None:
     return None
 
 
+def _text_field(item: dict, key: str) -> str:
+    value = item.get(key)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _section_items(payload: dict, section: str) -> list[dict]:
+    items = payload.get(section)
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _append_unique(images: list[WebImage], seen: set[str], url: str | None) -> None:
+    if url is None or url in seen:
+        return
+    seen.add(url)
+    images.append(WebImage(url=url))
+
+
 def _parse_lens_result(payload: dict) -> ReverseSearchResult:
+    """Map a SerpApi google_lens response onto the provider-neutral result.
+
+    SerpApi's `visual_matches` entries each pair a source page (`link`) with the
+    visually matching image found on it (`image`). Entries flagged
+    `exact_matches` are the provider's own exact-match signal; the dedicated
+    `exact_matches` section is parsed too, since it is the documented response
+    for `type=exact_matches` requests. `partial_matching_images`,
+    `web_entities` and `best_guess_labels` stay empty: Google Lens exposes no
+    trustworthy equivalent, and inferring them would mislabel evidence.
+    """
     pages: list[MatchingPage] = []
-    seen: set[str] = set()
-    for section in ("visual_matches", "results"):
-        items = payload.get(section)
-        if not isinstance(items, list):
+    full_matches: list[WebImage] = []
+    similar_images: list[WebImage] = []
+    seen_pages: set[str] = set()
+    seen_full: set[str] = set()
+    seen_similar: set[str] = set()
+
+    for item in _section_items(payload, "visual_matches"):
+        image_url = _http_url(item.get("image"))
+        is_exact = item.get("exact_matches") is True
+
+        if is_exact:
+            _append_unique(full_matches, seen_full, image_url)
+        _append_unique(similar_images, seen_similar, image_url)
+
+        page_url = _http_url(item.get("link"))
+        if page_url is None or page_url in seen_pages:
             continue
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            link = _source_page_url(item.get("link"))
-            if link is None or link in seen:
-                continue
-            seen.add(link)
-            pages.append(
-                MatchingPage(url=link, page_title=item.get("title") or "")
+        seen_pages.add(page_url)
+        page_full: list[WebImage] = []
+        if is_exact and image_url is not None:
+            page_full.append(WebImage(url=image_url))
+        pages.append(
+            MatchingPage(
+                url=page_url,
+                page_title=_text_field(item, "title"),
+                full_matching_images=page_full,
             )
-    return ReverseSearchResult(pages_with_matching_images=pages)
+        )
+
+    for item in _section_items(payload, "exact_matches"):
+        image_url = _http_url(item.get("thumbnail")) or _http_url(item.get("image"))
+        _append_unique(full_matches, seen_full, image_url)
+        _append_unique(similar_images, seen_similar, image_url)
+
+        page_url = _http_url(item.get("link"))
+        if page_url is None or page_url in seen_pages:
+            continue
+        seen_pages.add(page_url)
+        page_full = [WebImage(url=image_url)] if image_url is not None else []
+        pages.append(
+            MatchingPage(
+                url=page_url,
+                page_title=_text_field(item, "title"),
+                full_matching_images=page_full,
+            )
+        )
+
+    for item in _section_items(payload, "results"):
+        page_url = _http_url(item.get("link"))
+        if page_url is None or page_url in seen_pages:
+            continue
+        seen_pages.add(page_url)
+        pages.append(MatchingPage(url=page_url, page_title=_text_field(item, "title")))
+
+    return ReverseSearchResult(
+        pages_with_matching_images=pages,
+        full_matching_images=full_matches,
+        visually_similar_images=similar_images,
+    )
 
 
 class SerpApiLensSearcher:

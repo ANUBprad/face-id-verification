@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -34,6 +34,7 @@ from face_id_verification.reverse_search import (
     SerpApiLensSearcher,
     WebEntity,
     WebImage,
+    _parse_lens_result,
 )
 
 
@@ -634,6 +635,95 @@ class TestCanonicalHashIntegration:
         )
         assert "reverse_search" in payload
         assert payload["reverse_search"] is None
+
+
+class TestSerpApiLensEvidencePropagation:
+    """Parsed SerpApi Google Lens evidence must reach the report and the v1 payload."""
+
+    SERPAPI_PAYLOAD = {
+        "search_metadata": {"status": "Success"},
+        "visual_matches": [
+            {
+                "position": 1,
+                "title": "First",
+                "link": "https://example.com/z",
+                "image": "https://cdn.example.com/z.jpg",
+                "exact_matches": True,
+            },
+            {
+                "position": 2,
+                "title": "Second",
+                "link": "https://example.com/a",
+                "image": "https://cdn.example.com/a.jpg",
+            },
+        ],
+    }
+
+    def _pipeline(self, search_result, sample_image):
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search_result
+        return VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=False,
+        )
+
+    def test_report_carries_parsed_lens_evidence(self, sample_image):
+        parsed = _parse_lens_result(self.SERPAPI_PAYLOAD)
+        report = self._pipeline(parsed, sample_image).verify(sample_image)
+
+        assert [p.url for p in report.reverse_search.pages_with_matching_images] == [
+            "https://example.com/z",
+            "https://example.com/a",
+        ]
+        assert [i.url for i in report.reverse_search.full_matching_images] == [
+            "https://cdn.example.com/z.jpg"
+        ]
+        assert [i.url for i in report.reverse_search.visually_similar_images] == [
+            "https://cdn.example.com/z.jpg",
+            "https://cdn.example.com/a.jpg",
+        ]
+        assert report.reverse_search.partial_matching_images == []
+        assert report.reverse_search.web_entities == []
+        assert report.reverse_search.best_guess_labels == []
+
+    def test_report_evidence_is_json_serializable(self, sample_image):
+        parsed = _parse_lens_result(self.SERPAPI_PAYLOAD)
+        report = self._pipeline(parsed, sample_image).verify(sample_image)
+        encoded = json.dumps(asdict(report.reverse_search))
+        assert json.loads(encoded)["full_matching_images"] == [
+            {"url": "https://cdn.example.com/z.jpg"}
+        ]
+
+    def test_canonical_payload_receives_lens_evidence_in_provider_order(self, sample_image):
+        parsed = _parse_lens_result(self.SERPAPI_PAYLOAD)
+        pipeline = self._pipeline(parsed, sample_image)
+        report = pipeline.verify(sample_image)
+        payload = pipeline._build_canonical_payload(
+            image_content_hash(sample_image), report.faces, report.reverse_search, report.metadata
+        )
+
+        assert payload["reverse_search"]["pages_found"] == 2
+        assert payload["reverse_search"]["full_matches"] == 1
+        assert payload["reverse_search"]["partial_matches"] == 0
+        assert payload["reverse_search"]["page_urls"] == [
+            "https://example.com/z",
+            "https://example.com/a",
+        ]
+        assert payload["reverse_search"]["entities"] == []
+        assert payload["reverse_search"]["best_guess_labels"] == []
+
+    def test_visually_similar_images_are_not_in_the_v1_payload(self, sample_image):
+        parsed = _parse_lens_result(self.SERPAPI_PAYLOAD)
+        pipeline = self._pipeline(parsed, sample_image)
+        report = pipeline.verify(sample_image)
+        payload = pipeline._build_canonical_payload(
+            image_content_hash(sample_image), report.faces, report.reverse_search, report.metadata
+        )
+        assert "visually_similar_images" not in payload["reverse_search"]
 
 
 class TestOnChainReadBack:

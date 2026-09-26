@@ -16,6 +16,7 @@ from face_id_verification.reverse_search import (
     ReverseSearchError,
     ReverseSearchResult,
     SerpApiLensSearcher,
+    WebImage,
     _image_kind,
     _parse_lens_result,
     _prepare_upload_bytes,
@@ -367,6 +368,291 @@ class TestResultMapping:
     def test_no_matches(self):
         result = _parse_lens_result({"search_metadata": {"status": "Success"}})
         assert result.pages_with_matching_images == []
+
+
+def _lens_item(link=None, title="Title", image=None, exact=None, **extra):
+    """A SerpApi `visual_matches` entry in the documented response shape."""
+    item = {"position": 1, "source": "Example"}
+    if link is not None:
+        item["link"] = link
+    if title is not None:
+        item["title"] = title
+    if image is not None:
+        item["image"] = image
+    if exact is not None:
+        item["exact_matches"] = exact
+    item.update(extra)
+    return item
+
+
+class TestLensEvidencePreservation:
+    def test_visual_match_image_preserved(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(
+                    link="https://example.com/a",
+                    title="A",
+                    image="https://cdn.example.com/a.jpg",
+                )
+            ]
+        )
+        result = _parse_lens_result(payload)
+        assert [p.url for p in result.pages_with_matching_images] == ["https://example.com/a"]
+        assert [i.url for i in result.visually_similar_images] == [
+            "https://cdn.example.com/a.jpg"
+        ]
+        assert result.full_matching_images == []
+
+    def test_provider_order_preserved_not_sorted(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(link="https://example.com/z", image="https://cdn.example.com/z.jpg"),
+                _lens_item(link="https://example.com/a", image="https://cdn.example.com/a.jpg"),
+                _lens_item(link="https://example.com/m", image="https://cdn.example.com/m.jpg"),
+            ]
+        )
+        result = _parse_lens_result(payload)
+        assert [p.url for p in result.pages_with_matching_images] == [
+            "https://example.com/z",
+            "https://example.com/a",
+            "https://example.com/m",
+        ]
+        assert [i.url for i in result.visually_similar_images] == [
+            "https://cdn.example.com/z.jpg",
+            "https://cdn.example.com/a.jpg",
+            "https://cdn.example.com/m.jpg",
+        ]
+
+    def test_exact_flag_populates_full_matches(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(
+                    link="https://example.com/exact",
+                    image="https://cdn.example.com/exact.jpg",
+                    exact=True,
+                ),
+                _lens_item(
+                    link="https://example.com/loose",
+                    image="https://cdn.example.com/loose.jpg",
+                ),
+            ]
+        )
+        result = _parse_lens_result(payload)
+        assert [i.url for i in result.full_matching_images] == [
+            "https://cdn.example.com/exact.jpg"
+        ]
+        assert [p.url for p in result.pages_with_matching_images] == [
+            "https://example.com/exact",
+            "https://example.com/loose",
+        ]
+        assert result.pages_with_matching_images[0].full_matching_images == [
+            WebImage(url="https://cdn.example.com/exact.jpg")
+        ]
+        assert result.pages_with_matching_images[1].full_matching_images == []
+
+    def test_exact_matches_section_parsed(self):
+        payload = {
+            "search_metadata": {"status": "Success"},
+            "exact_matches": [
+                {
+                    "position": 1,
+                    "title": "Simple English Wikipedia",
+                    "source": "Wikipedia",
+                    "link": "https://simple.wikipedia.org/wiki/Danny_DeVito",
+                    "thumbnail": "https://serpapi.com/searches/abc.jpeg",
+                    "actual_image_width": 220,
+                    "actual_image_height": 262,
+                }
+            ],
+        }
+        result = _parse_lens_result(payload)
+        assert [p.url for p in result.pages_with_matching_images] == [
+            "https://simple.wikipedia.org/wiki/Danny_DeVito"
+        ]
+        assert [i.url for i in result.full_matching_images] == [
+            "https://serpapi.com/searches/abc.jpeg"
+        ]
+
+    def test_visual_similarity_is_never_a_full_match(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(link="https://example.com/a", image="https://cdn.example.com/a.jpg")
+            ]
+        )
+        result = _parse_lens_result(payload)
+        assert result.visually_similar_images
+        assert result.full_matching_images == []
+
+    def test_partial_matches_never_populated(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(
+                    link="https://example.com/a",
+                    image="https://cdn.example.com/a.jpg",
+                    exact=True,
+                )
+            ]
+        )
+        assert _parse_lens_result(payload).partial_matching_images == []
+
+    def test_entities_and_labels_never_fabricated(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(link="https://example.com/a", title="Some Person | Site")
+            ]
+        )
+        result = _parse_lens_result(payload)
+        assert result.web_entities == []
+        assert result.best_guess_labels == []
+
+    def test_related_content_is_not_treated_as_page_or_image(self):
+        payload = {
+            "search_metadata": {"status": "Success"},
+            "related_content": [
+                {
+                    "query": "Danny DeVito",
+                    "link": "https://lens.google.com/search?q=Danny+DeVito",
+                    "thumbnail": "https://serpapi.com/searches/rel.jpeg",
+                    "serpapi_link": "https://serpapi.com/search.json?engine=google&q=Danny+DeVito",
+                }
+            ],
+        }
+        result = _parse_lens_result(payload)
+        assert result.pages_with_matching_images == []
+        assert result.visually_similar_images == []
+        assert result.full_matching_images == []
+        assert result.best_guess_labels == []
+
+    def test_duplicate_image_deduplicated(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(link="https://example.com/a", image="https://cdn.example.com/same.jpg"),
+                _lens_item(link="https://example.com/b", image="https://cdn.example.com/same.jpg"),
+            ]
+        )
+        result = _parse_lens_result(payload)
+        assert [i.url for i in result.visually_similar_images] == [
+            "https://cdn.example.com/same.jpg"
+        ]
+        assert len(result.pages_with_matching_images) == 2
+
+    def test_null_and_missing_fields_tolerated(self):
+        payload = {
+            "search_metadata": {"status": "Success"},
+            "visual_matches": [
+                {"link": "https://example.com/a", "title": None, "image": None},
+                {"link": None, "title": "orphan", "image": "https://cdn.example.com/o.jpg"},
+            ],
+        }
+        result = _parse_lens_result(payload)
+        assert [p.url for p in result.pages_with_matching_images] == ["https://example.com/a"]
+        assert result.pages_with_matching_images[0].page_title == ""
+        assert [i.url for i in result.visually_similar_images] == [
+            "https://cdn.example.com/o.jpg"
+        ]
+
+    def test_malformed_entries_do_not_break_response(self):
+        payload = _search_payload(
+            visual_matches=[
+                "not-a-dict",
+                None,
+                42,
+                {"link": {"nested": "object"}, "title": ["list"]},
+                _lens_item(link="https://example.com/ok", image="https://cdn.example.com/ok.jpg"),
+            ]
+        )
+        result = _parse_lens_result(payload)
+        assert [p.url for p in result.pages_with_matching_images] == ["https://example.com/ok"]
+        assert [i.url for i in result.visually_similar_images] == [
+            "https://cdn.example.com/ok.jpg"
+        ]
+
+    def test_non_string_title_becomes_empty(self):
+        payload = _search_payload(visual_matches=[{"link": "https://example.com/a", "title": 12}])
+        result = _parse_lens_result(payload)
+        assert result.pages_with_matching_images[0].page_title == ""
+
+    def test_unknown_extra_fields_ignored(self):
+        payload = {
+            "search_metadata": {"status": "Success"},
+            "visual_matches": [
+                _lens_item(
+                    link="https://example.com/a",
+                    image="https://cdn.example.com/a.jpg",
+                    rating=4.5,
+                    reviews=777,
+                    in_stock=True,
+                    price={"value": "$175*", "extracted_value": 175, "currency": "$"},
+                    serpapi_exact_matches_link="https://serpapi.com/search.json?type=exact_matches",
+                )
+            ],
+            "ai_overview": {"page_token": "abc"},
+        }
+        result = _parse_lens_result(payload)
+        assert [p.url for p in result.pages_with_matching_images] == ["https://example.com/a"]
+        assert [i.url for i in result.visually_similar_images] == [
+            "https://cdn.example.com/a.jpg"
+        ]
+
+    def test_thumbnail_is_not_used_as_full_image(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(
+                    link="https://example.com/a",
+                    thumbnail="https://encrypted-tbn1.gstatic.com/images?q=tbn:abc",
+                    source_icon="https://serpapi.com/searches/icon.png",
+                )
+            ]
+        )
+        result = _parse_lens_result(payload)
+        assert result.visually_similar_images == []
+        assert result.full_matching_images == []
+        assert [p.url for p in result.pages_with_matching_images] == ["https://example.com/a"]
+
+    def test_truthy_non_boolean_exact_flag_not_full_match(self):
+        payload = _search_payload(
+            visual_matches=[
+                _lens_item(
+                    link="https://example.com/a",
+                    image="https://cdn.example.com/a.jpg",
+                    exact="true",
+                )
+            ]
+        )
+        assert _parse_lens_result(payload).full_matching_images == []
+
+    def test_empty_and_absent_sections(self):
+        assert _parse_lens_result({}).pages_with_matching_images == []
+        assert _parse_lens_result({"visual_matches": None}).pages_with_matching_images == []
+        assert _parse_lens_result({"visual_matches": []}).visually_similar_images == []
+
+    def test_page_deduplicated_across_sections(self):
+        payload = {
+            "search_metadata": {"status": "Success"},
+            "visual_matches": [_lens_item(link="https://example.com/dup", title="First")],
+            "exact_matches": [{"link": "https://example.com/dup", "title": "Second"}],
+        }
+        result = _parse_lens_result(payload)
+        assert len(result.pages_with_matching_images) == 1
+        assert result.pages_with_matching_images[0].page_title == "First"
+
+    def test_results_section_stays_page_only(self):
+        payload = {
+            "search_metadata": {"status": "Success"},
+            "results": [
+                {
+                    "link": "https://example.com/legacy",
+                    "title": "Legacy",
+                    "image": "https://cdn.example.com/legacy.jpg",
+                }
+            ],
+        }
+        result = _parse_lens_result(payload)
+        assert [p.url for p in result.pages_with_matching_images] == [
+            "https://example.com/legacy"
+        ]
+        assert result.visually_similar_images == []
+        assert result.full_matching_images == []
 
 
 class TestTimeoutSemantics:

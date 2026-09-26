@@ -6,10 +6,21 @@ import cv2
 import numpy as np
 import pytest
 
+from face_id_verification import config
+
 try:
     import requests
 except ImportError:
     requests = None
+
+
+@pytest.fixture(autouse=True)
+def _isolate_local_config(tmp_path, monkeypatch):
+    """Keep the suite hermetic so the developer's real .env is never loaded."""
+    isolated = tmp_path / "isolated"
+    isolated.mkdir()
+    monkeypatch.setattr(config, "project_root", lambda: isolated)
+    monkeypatch.chdir(isolated)
 
 
 def _download_face(url: str, path: Path) -> bool:

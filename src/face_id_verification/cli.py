@@ -102,6 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_local_config()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -167,5 +168,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    load_local_config()
     sys.exit(main())

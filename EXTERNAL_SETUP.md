@@ -24,7 +24,7 @@ The pipeline must perform **genuine reverse-image discovery** — given a face i
 
 - It is a real provider with a real API (upload the bytes, then query Google Lens), not a screen-scrape hack or a hardcoded result.
 - The two-step flow uploads the image bytes to `https://serpapi.com/image`, then runs a `google_lens` search with the returned `image_id`.
-- The request is made with the standard `requests` library; results are parsed from the actual response's `visual_matches` / `results` sections.
+- The request is made with the standard `requests` library; results are parsed from the actual response's `visual_matches`, `exact_matches`, and `results` sections. See [docs/setup/serpapi.md](docs/setup/serpapi.md) for the exact field mapping and for the evidence Google Lens does not return (`partial_matching_images`, `web_entities`, `best_guess_labels` stay empty under this provider).
 - Images larger than the provider's 500 KB upload limit are compressed in memory (never overwriting the original) to fit the provider's constraint.
 
 The legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still present and tested, but is **not** the default provider.

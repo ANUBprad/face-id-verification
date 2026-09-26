@@ -102,13 +102,32 @@ The embedding is **not** an identity match. It is a fixed-length representation 
 The default discovery path is **SerpApi × Google Lens** (`ReverseImageSearcher` = `SerpApiLensSearcher`):
 
 - The image is compressed in memory when needed (provider limit is **500 KB**), uploaded to SerpApi, and a real `google_lens` visual search runs.
-- Results come straight from the API response: pages with matching images, web entities, best-guess labels, and visually similar images. **Nothing is hardcoded or preselected.**
+- Results come straight from the API response: pages with matching images, the visually matching images found on them, and the images the provider flags as exact matches. **Nothing is hardcoded or preselected.**
+- Provider ranking is preserved, never sorted. Pages are deduplicated by URL and images by image URL, keeping each first occurrence.
 - A page with no public matches is reported as a valid, non-error "no match".
 - Without `SERPAPI_API_KEY` the stage is truthfully reported **BLOCKED** with the underlying reason — the pipeline never pretends a search succeeded.
 
+What the default SerpApi provider does **not** return, and therefore never reports:
+
+| Report field | SerpApi Google Lens |
+| --- | --- |
+| `pages_with_matching_images` | supported - from `visual_matches[].link` / `title` |
+| `visually_similar_images` | supported - from `visual_matches[].image` |
+| `full_matching_images` | supported - images the provider itself flags `exact_matches`, plus the dedicated `exact_matches` section |
+| `partial_matching_images` | **never populated** - Google Lens has no partial-match concept |
+| `web_entities` | **never populated** - Lens returns no entity descriptions or scores |
+| `best_guess_labels` | **never populated** - Lens returns no labels; page titles and related search queries are not labels |
+
+These three are Google Cloud Vision concepts, not Lens ones. Deriving them from titles, domains, or related queries would mislabel evidence, so they stay empty rather than being guessed. `web_entities` is left empty partly because Lens gives no confidence score, and `mukhdax/v1` canonicalizes an entity score into `score_ppm` - inventing a number there would fabricate evidence.
+
+Two further provider limits worth knowing:
+
+- The pipeline requests SerpApi's default `type=all`, which Google Lens defines as the **Visual Matches** tab only. The dedicated Exact Matches tab is a separate request that the pipeline does not make, so exact-match evidence comes from the per-result `exact_matches` flag rather than a second billable call.
+- Lens returns related search queries (with Google search links). They are not pages containing the image, so they are not reported as matches.
+
 > Lens matches are **discovery evidence**: they show where an image publicly appears. They are not identity proof and not ownership proof.
 
-A legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still available and tested but is **not** the default provider.
+A legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still available and tested but is **not** the default provider. It is the only provider that populates `partial_matching_images`, `web_entities`, and `best_guess_labels`, because those are Cloud Vision response concepts.
 
 ## Metadata extraction
 
@@ -142,6 +161,10 @@ The payload is built by `src/face_id_verification/verification_hash.py` under an
 | Evidence order | preserved, not sorted — `faces`, `page_urls`, `best_guess_labels`, `entities` and `metadata` are ranked or positional, so reordering them would change their meaning |
 
 **Included:** `schema`, `image_content_hash`, per-face `bounding_box` / `detection_confidence_ppm` / `embedding_hash`, reverse-search counts, entity descriptions and `score_ppm`, best-guess labels, page URLs, and per-URL metadata (`source_url`, `title`, `platform`, `has_error`).
+
+**Report-only:** individual `full_matching_images`, `partial_matching_images`, and `visually_similar_images` URLs are reported but not serialized individually — v1 fingerprints only the `full_matches` / `partial_matches` **counts** and the ordered `page_urls`. `page_title` is likewise excluded, since it is presentation text.
+
+Because the counts are part of the fingerprint, a run whose provider reports exact matches hashes differently from an otherwise identical run whose provider reports none. The schema meaning is unchanged; only the evidence differs. Adding image URLs to v1 would require a `mukhdax/v2` decision.
 
 **Excluded by construction:** local file paths, execution timestamps, RPC endpoints, transaction hashes, block numbers, machine details, and error text.
 
@@ -197,7 +220,7 @@ There is **no `CONTRACT_ADDRESS` environment variable**: the address is supplied
 
 ## Example report
 
-Illustrative example — the field structure matches the real `VerificationReport` schema (values below are placeholders, not live outputs):
+Illustrative example — the field structure matches the real `VerificationReport` schema (values below are placeholders, not live outputs). The `reverse_search` block is shown in its canonical `mukhdax/v1` form; with the default SerpApi provider `partial_matches` is `0` and `entities` is `[]`, because Google Lens supplies neither:
 
 ```json
 {
@@ -213,8 +236,8 @@ Illustrative example — the field structure matches the real `VerificationRepor
   "reverse_search": {
     "pages_found": 3,
     "full_matches": 2,
-    "partial_matches": 1,
-    "entities": [{"description": "Person", "score": 0.91}],
+    "partial_matches": 0,
+    "entities": [],
     "best_guess_labels": [],
     "page_urls": ["https://example.com/photo-1", "https://example.com/photo-2"]
   },

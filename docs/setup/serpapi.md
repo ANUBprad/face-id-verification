@@ -40,8 +40,24 @@ If the key is valid, the test performs a real SerpApi Google Lens request. If an
 ## How it works
 
 1. The image bytes are uploaded to `https://serpapi.com/image`, which returns an `image_id`.
-2. A `google_lens` search is run with that `image_id`.
-3. Source-page links in the `visual_matches` / `results` sections are parsed into matching pages.
+2. A `google_lens` search is run with that `image_id` (SerpApi's default `type=all`).
+3. The documented response sections are parsed:
+   - `visual_matches[].link` / `title` -> matching pages
+   - `visual_matches[].image` -> visually similar images
+   - `visual_matches[].exact_matches` -> full/exact matches (also parsed into each page's `full_matching_images`)
+   - `exact_matches[]` -> parsed too, for responses from a `type=exact_matches` request
+   - `results[]` -> page-only fallback
+
+Provider ranking is preserved, not sorted. Pages are deduplicated by URL and images by image URL, keeping the first occurrence. Malformed individual entries are skipped without discarding the rest of the response.
+
+### What Google Lens does not return
+
+`partial_matching_images`, `web_entities`, and `best_guess_labels` are Google Cloud Vision concepts and stay empty under this provider. Lens returns no partial-match concept, no entity descriptions or scores, and no labels — page titles and related search queries are not labels, so they are not used as such. Only the legacy `GoogleVisionSearcher` (see [gcp.md](gcp.md)) populates them.
+
+Two further limits:
+
+- `type=all` is the Visual Matches tab only; the Exact Matches tab is a separate request the pipeline does not make, so exact-match evidence comes from the per-result `exact_matches` flag rather than an extra billable call.
+- Related search queries are returned by Lens but are not pages containing the image, so they are not reported as matches.
 
 Images larger than SerpApi's **500 KB** upload limit are compressed in memory (resized + JPEG re-encode) to fit — the original file and its content hash are never modified.
 

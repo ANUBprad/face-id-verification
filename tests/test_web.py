@@ -23,6 +23,7 @@ from face_id_verification.reverse_search import (
     WebEntity,
     WebImage,
 )
+from face_id_verification.verification_hash import SCHEMA_ID
 from face_id_verification.web.app import create_app
 
 TINY_PNG = bytes.fromhex(
@@ -566,6 +567,31 @@ class TestVerificationState:
         stages = {s["name"]: s for s in verification["stages"]}
         assert stages["On-Chain Read-Back"]["state"] == "disabled"
         assert verification["overall"]["state"] == "complete"
+
+    def test_api_declares_the_verification_schema(self):
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        response = TestClient(app).post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+        assert response.status_code == 200
+        report = response.json()["report"]
+        assert report["verification_schema"] == SCHEMA_ID
+        assert report["verification_hash"].startswith("0x")
+
+    def test_api_hides_input_path_but_keeps_schema(self):
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        response = TestClient(app).post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+        report = response.json()["report"]
+        assert "input_image" not in report
+        assert report["verification_schema"] == SCHEMA_ID
 
     def test_blockchain_failure_creates_overall_issue(self):
         app = create_app(

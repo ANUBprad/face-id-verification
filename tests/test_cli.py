@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from face_id_verification.blockchain_recording import BlockchainRecord, VerificationReadBack
 from face_id_verification.cli import (
     EXIT_BLOCKCHAIN,
     EXIT_FACE_DETECTION,
@@ -36,6 +37,10 @@ from face_id_verification.reverse_search import (
     WebEntity,
     WebImage,
 )
+from face_id_verification.verification_hash import (
+    LEGACY_SCHEMA_ID,
+    SCHEMA_ID,
+)
 
 
 def _make_report(
@@ -50,6 +55,8 @@ def _make_report(
     blockchain_error=None,
     verification_hash="0xabc123",
     errors=None,
+    verification_schema=SCHEMA_ID,
+    blockchain_readback=None,
 ):
     return VerificationReport(
         status=status,
@@ -63,6 +70,8 @@ def _make_report(
         blockchain_error=blockchain_error,
         verification_hash=verification_hash,
         errors=errors or [],
+        verification_schema=verification_schema,
+        blockchain_readback=blockchain_readback,
     )
 
 
@@ -112,6 +121,63 @@ class TestJsonOutput:
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert "status" in data
+
+
+class TestSchemaIdentityInReport:
+    """The public report must state which schema produced its fingerprint."""
+
+    @patch.object(VerificationPipeline, "verify")
+    def test_stdout_declares_the_schema(self, mock_verify, fake_image, capsys):
+        mock_verify.return_value = _make_report()
+        main(["--image", fake_image, "--skip-blockchain"])
+        data = json.loads(capsys.readouterr().out)
+        assert data["verification_schema"] == SCHEMA_ID
+        assert data["verification_hash"] == "0xabc123"
+
+    @patch.object(VerificationPipeline, "verify")
+    def test_written_report_declares_the_schema(self, mock_verify, fake_image, tmp_path):
+        mock_verify.return_value = _make_report()
+        output_dir = str(tmp_path / "out")
+        main(["--image", fake_image, "--output-dir", output_dir, "--skip-blockchain"])
+        written = json.loads(
+            (Path(output_dir) / "verification_report.json").read_text(encoding="utf-8")
+        )
+        assert written["verification_schema"] == SCHEMA_ID
+
+    @patch.object(VerificationPipeline, "verify")
+    def test_legacy_schema_is_representable_and_distinct(self, mock_verify, fake_image, capsys):
+        mock_verify.return_value = _make_report(verification_schema=LEGACY_SCHEMA_ID)
+        main(["--image", fake_image, "--skip-blockchain"])
+        data = json.loads(capsys.readouterr().out)
+        assert data["verification_schema"] == LEGACY_SCHEMA_ID
+        assert data["verification_schema"] != SCHEMA_ID
+
+    @patch.object(VerificationPipeline, "verify")
+    def test_readback_hash_matches_reported_hash(self, mock_verify, fake_image, capsys):
+        shared = "0x" + "ab" * 32
+        mock_verify.return_value = _make_report(
+            verification_hash=shared,
+            blockchain=BlockchainRecord(
+                verification_hash=shared,
+                transaction_hash="0x" + "cd" * 32,
+                block_number=1,
+                confirmed=True,
+                explorer_url=None,
+            ),
+            blockchain_readback=VerificationReadBack(
+                verification_hash=shared,
+                exists=True,
+                verified=True,
+                recorder="0x" + "ef" * 20,
+                timestamp=1757000000,
+            ),
+        )
+        main(["--image", fake_image, "--skip-blockchain"])
+        data = json.loads(capsys.readouterr().out)
+        assert data["verification_hash"] == shared
+        assert data["blockchain"]["verification_hash"] == shared
+        assert data["blockchain_readback"]["verification_hash"] == shared
+        assert data["blockchain_readback"]["verified"] is True
 
 
 class TestOutputDirectory:

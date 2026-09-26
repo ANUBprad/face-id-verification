@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
@@ -77,12 +76,6 @@ class VerificationReadBack:
     verified: bool
     recorder: str | None = None
     timestamp: int | None = None
-
-
-def compute_verification_hash(data: dict) -> str:
-    canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    digest = Web3.keccak(text=canonical)
-    return "0x" + digest.hex()
 
 
 def _canonical_tx_hash(tx_hash: bytes | str) -> str:
@@ -231,8 +224,12 @@ def deploy_contract(contract_address: str | None = None) -> DeploymentRecord:
     )
 
 
-def record_verification(contract_address: str, verification_data: dict) -> BlockchainRecord:
-    verification_hash = compute_verification_hash(verification_data)
+def record_verification(contract_address: str, verification_hash: str) -> BlockchainRecord:
+    """Record an already-computed verification fingerprint.
+
+    The hash is supplied by the caller rather than re-derived here, so the digest shown in
+    the report is provably the digest written to the chain.
+    """
     verification_bytes32 = bytes.fromhex(verification_hash[2:])
 
     rpc_url, private_key = _load_config()

@@ -11,6 +11,10 @@ from face_id_verification.blockchain_recording import (
     BlockchainError,
     BlockchainRecord,
     VerificationReadBack,
+)
+from face_id_verification.verification_hash import (
+    SCHEMA_ID,
+    compute_legacy_verification_hash,
     compute_verification_hash,
 )
 from face_id_verification.face_detection import DetectedFace, FaceDetectionError, FaceAnalyzer
@@ -392,11 +396,10 @@ class TestBlockchainOnChainKeyConsistency:
 
         captured = {}
 
-        def fake_record_verification(contract_address, verification_data):
-            recorded_hash = compute_verification_hash(verification_data)
-            captured["recorded_hash"] = recorded_hash
+        def fake_record_verification(contract_address, verification_hash):
+            captured["recorded_hash"] = verification_hash
             return BlockchainRecord(
-                verification_hash=recorded_hash,
+                verification_hash=verification_hash,
                 transaction_hash="0x" + "1" * 64,
                 block_number=123,
                 confirmed=True,
@@ -425,6 +428,212 @@ class TestBlockchainOnChainKeyConsistency:
             "0x1234567890abcdef1234567890abcdef12345678",
             captured["recorded_hash"],
         )
+
+
+class TestCanonicalHashIntegration:
+    """The exact hash computed by the pipeline must be the one recorded and read back."""
+
+    def _pipeline(self, sample_image, search=None, metadata=None):
+        face = _make_face()
+        search = search if search is not None else _make_search_result(
+            pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+        )
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [face]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search
+        return VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=metadata
+            if metadata is not None
+            else (lambda url: _make_metadata(url=url)),
+            blockchain_enabled=True,
+            contract_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+
+    def test_report_declares_the_v1_schema(self, sample_image):
+        with patch("face_id_verification.pipeline.record_verification"), patch(
+            "face_id_verification.pipeline.read_back_verification"
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+        assert report.verification_schema == SCHEMA_ID
+
+    def test_recorded_hash_is_exactly_the_computed_hash(self, sample_image):
+        def echo(contract_address, verification_hash):
+            return BlockchainRecord(
+                verification_hash=verification_hash,
+                transaction_hash="0x" + "22" * 32,
+                block_number=1,
+                confirmed=True,
+                explorer_url=None,
+            )
+
+        with patch(
+            "face_id_verification.pipeline.record_verification", side_effect=echo
+        ) as mock_record, patch("face_id_verification.pipeline.read_back_verification"):
+            report = self._pipeline(sample_image).verify(sample_image)
+        recorded_arg = mock_record.call_args[0][1]
+        assert recorded_arg == report.verification_hash
+        assert report.blockchain.verification_hash == report.verification_hash
+
+    def test_readback_is_queried_with_the_submitted_hash(self, sample_image):
+        def echo(contract_address, verification_hash):
+            return BlockchainRecord(
+                verification_hash=verification_hash,
+                transaction_hash="0x" + "22" * 32,
+                block_number=1,
+                confirmed=True,
+                explorer_url=None,
+            )
+
+        def echo_readback(contract_address, verification_hash):
+            return VerificationReadBack(
+                verification_hash=verification_hash,
+                exists=True,
+                verified=True,
+                recorder="0x" + "cd" * 20,
+                timestamp=1757000000,
+            )
+
+        with patch(
+            "face_id_verification.pipeline.record_verification", side_effect=echo
+        ) as mock_record, patch(
+            "face_id_verification.pipeline.read_back_verification",
+            side_effect=echo_readback,
+        ) as mock_readback:
+            report = self._pipeline(sample_image).verify(sample_image)
+        submitted = mock_record.call_args[0][1]
+        queried = mock_readback.call_args[0][1]
+        assert submitted == queried
+        assert report.blockchain_readback.verification_hash == submitted
+        assert report.blockchain_readback.verified is True
+
+    def test_hash_is_keccak_of_canonical_v1_payload(self, sample_image):
+        with patch("face_id_verification.pipeline.record_verification"), patch(
+            "face_id_verification.pipeline.read_back_verification"
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+        payload = self._pipeline(sample_image)._build_canonical_payload(
+            image_content_hash(sample_image),
+            report.faces,
+            report.reverse_search,
+            report.metadata,
+        )
+        assert payload["schema"] == SCHEMA_ID
+        assert compute_verification_hash(payload) == report.verification_hash
+
+    def test_payload_contains_no_floating_point_confidence(self, sample_image):
+        with patch("face_id_verification.pipeline.record_verification"), patch(
+            "face_id_verification.pipeline.read_back_verification"
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+        payload = self._pipeline(sample_image)._build_canonical_payload(
+            image_content_hash(sample_image),
+            report.faces,
+            report.reverse_search,
+            report.metadata,
+        )
+        assert "detection_confidence" not in payload["faces"][0]
+        assert "detection_confidence_ppm" in payload["faces"][0]
+        assert isinstance(payload["faces"][0]["detection_confidence_ppm"], int)
+
+    def test_pipeline_hash_is_not_the_legacy_algorithm(self, sample_image):
+        with patch("face_id_verification.pipeline.record_verification"), patch(
+            "face_id_verification.pipeline.read_back_verification"
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+        legacy_payload = {
+            "image_content_hash": image_content_hash(sample_image),
+            "faces": [
+                {
+                    "bounding_box": list(face.bounding_box),
+                    "detection_confidence": face.detection_confidence,
+                    "embedding_hash": face.embedding_hash,
+                }
+                for face in report.faces
+            ],
+            "metadata": [
+                {
+                    "source_url": item.source_url,
+                    "title": item.title,
+                    "platform": item.platform,
+                    "has_error": item.error is not None,
+                }
+                for item in report.metadata
+            ],
+        }
+        assert report.verification_hash != compute_legacy_verification_hash(legacy_payload)
+
+    def test_repeat_run_over_same_evidence_is_stable(self, sample_image):
+        # The same face object must be reused: a fresh random embedding is different
+        # evidence and must produce a different fingerprint.
+        face = _make_face()
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [face]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+        )
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=False,
+        )
+        hashes = [pipeline.verify(sample_image).verification_hash for _ in range(2)]
+        assert hashes[0] == hashes[1]
+
+    def test_different_embedding_yields_different_hash(self, sample_image):
+        def run():
+            mock_analyzer = MagicMock(spec=FaceAnalyzer)
+            mock_analyzer.detect_faces.return_value = [_make_face()]
+            mock_searcher = MagicMock()
+            mock_searcher.search.return_value = _make_search_result(
+                pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+            )
+            return VerificationPipeline(
+                face_analyzer=mock_analyzer,
+                reverse_searcher=mock_searcher,
+                metadata_extractor=lambda url: _make_metadata(url=url),
+                blockchain_enabled=False,
+            ).verify(sample_image).verification_hash
+
+        assert run() != run()
+
+    def test_reverse_search_failure_still_produces_v1_hash(self, sample_image):
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        mock_searcher = MagicMock()
+        mock_searcher.search.side_effect = ReverseSearchError("no provider")
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=False,
+        )
+        report = pipeline.verify(sample_image)
+        assert report.status == "reverse_search_failed"
+        assert report.verification_schema == SCHEMA_ID
+        assert report.verification_hash is not None
+
+    def test_absent_reverse_search_is_canonical_null(self, sample_image):
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        mock_searcher = MagicMock()
+        mock_searcher.search.side_effect = ReverseSearchError("no provider")
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=False,
+        )
+        report = pipeline.verify(sample_image)
+        payload = pipeline._build_canonical_payload(
+            image_content_hash(sample_image), report.faces, report.reverse_search, report.metadata
+        )
+        assert "reverse_search" in payload
+        assert payload["reverse_search"] is None
 
 
 class TestOnChainReadBack:
@@ -776,9 +985,12 @@ class TestHashReproducibility:
 
         pipeline = VerificationPipeline(face_analyzer=MagicMock())
 
-        payload = pipeline._build_payload(image_content_hash(path), [face], None, [])
+        payload = pipeline._build_canonical_payload(
+            image_content_hash(path), [face], None, []
+        )
         serialized = json.dumps(payload, sort_keys=True)
 
+        assert payload["schema"] == SCHEMA_ID
         assert payload["image_content_hash"] == image_content_hash(path)
         assert "input_image" not in payload
         assert str(path) not in serialized
@@ -799,7 +1011,7 @@ class TestHashReproducibility:
         )
 
         pipeline = VerificationPipeline(face_analyzer=MagicMock())
-        payload = pipeline._build_payload(image_content_hash(path), [face], None, [])
+        payload = pipeline._build_canonical_payload(image_content_hash(path), [face], None, [])
         serialized = json.dumps(payload, sort_keys=True).lower()
 
         for secret in ("private_key", "sepolia_", "rpcur", "api_key", "token"):
@@ -915,7 +1127,7 @@ class TestMetadataResultExtraction:
             blockchain_enabled=False,
         )
         report = pipeline.verify(sample_image)
-        payload = pipeline._build_payload(
+        payload = pipeline._build_canonical_payload(
             image_content_hash(sample_image),
             report.faces,
             search,

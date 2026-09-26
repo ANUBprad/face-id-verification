@@ -12,7 +12,6 @@ from face_id_verification.blockchain_recording import (
     BlockchainError,
     BlockchainRecord,
     VerificationReadBack,
-    compute_verification_hash,
     read_back_verification,
     record_verification,
 )
@@ -30,6 +29,14 @@ from face_id_verification.reverse_search import (
     ReverseImageSearcher,
     ReverseSearchError,
     ReverseSearchResult,
+)
+from face_id_verification.verification_hash import (
+    SCHEMA_ID,
+    FaceEvidence,
+    MetadataEvidence,
+    SearchEvidence,
+    build_canonical_payload,
+    compute_verification_hash,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,6 +77,7 @@ class VerificationReport:
     errors: list[str] = field(default_factory=list)
     blockchain_readback: VerificationReadBack | None = None
     blockchain_readback_error: str | None = None
+    verification_schema: str | None = None
 
 
 def image_content_hash(image_path: str | Path) -> str:
@@ -171,12 +179,12 @@ class VerificationPipeline:
 
         metadata_results, metadata_errors = self._extract_metadata(search_result)
 
-        verification_payload = self._build_payload(content_hash, faces, search_result, metadata_results)
+        verification_payload = self._build_canonical_payload(
+            content_hash, faces, search_result, metadata_results
+        )
         verification_hash = compute_verification_hash(verification_payload)
 
-        blockchain_record, blockchain_error = self._record_blockchain(
-            verification_hash, verification_payload
-        )
+        blockchain_record, blockchain_error = self._record_blockchain(verification_hash)
 
         readback, readback_error = self._read_back_blockchain(
             verification_hash, blockchain_record
@@ -198,6 +206,7 @@ class VerificationPipeline:
             errors=errors,
             blockchain_readback=readback,
             blockchain_readback_error=readback_error,
+            verification_schema=SCHEMA_ID,
         )
 
     def _detect_faces(self, image_path: str | Path) -> tuple[list[FaceResult], str | None]:
@@ -278,52 +287,50 @@ class VerificationPipeline:
 
         return results, errors
 
-    def _build_payload(
+    def _build_canonical_payload(
         self,
         image_content_hash_value: str,
         faces: list[FaceResult],
         search_result: ReverseSearchResult | None,
         metadata_results: list[MetadataResult],
     ) -> dict:
-        payload: dict = {
-            "image_content_hash": image_content_hash_value,
-            "faces": [
-                {
-                    "bounding_box": f.bounding_box,
-                    "detection_confidence": f.detection_confidence,
-                    "embedding_hash": f.embedding_hash,
-                }
-                for f in faces
-            ],
-        }
+        search_evidence = None
+        if search_result is not None:
+            search_evidence = SearchEvidence(
+                pages_found=len(search_result.pages_with_matching_images),
+                full_matches=len(search_result.full_matching_images),
+                partial_matches=len(search_result.partial_matching_images),
+                entities=tuple(
+                    (entity.description, entity.score) for entity in search_result.web_entities
+                ),
+                best_guess_labels=tuple(search_result.best_guess_labels),
+                page_urls=tuple(page.url for page in search_result.pages_with_matching_images),
+            )
 
-        if search_result:
-            payload["reverse_search"] = {
-                "pages_found": len(search_result.pages_with_matching_images),
-                "full_matches": len(search_result.full_matching_images),
-                "partial_matches": len(search_result.partial_matching_images),
-                "entities": [
-                    {"description": e.description, "score": e.score}
-                    for e in search_result.web_entities
-                ],
-                "best_guess_labels": search_result.best_guess_labels,
-                "page_urls": [p.url for p in search_result.pages_with_matching_images],
-            }
-
-        payload["metadata"] = [
-            {
-                "source_url": m.source_url,
-                "title": m.title,
-                "platform": m.platform,
-                "has_error": m.error is not None,
-            }
-            for m in metadata_results
-        ]
-
-        return payload
+        return build_canonical_payload(
+            image_content_hash=image_content_hash_value,
+            faces=tuple(
+                FaceEvidence(
+                    bounding_box=face.bounding_box,
+                    detection_confidence=face.detection_confidence,
+                    embedding_hash=face.embedding_hash,
+                )
+                for face in faces
+            ),
+            reverse_search=search_evidence,
+            metadata=tuple(
+                MetadataEvidence(
+                    source_url=item.source_url,
+                    title=item.title,
+                    platform=item.platform,
+                    has_error=item.error is not None,
+                )
+                for item in metadata_results
+            ),
+        )
 
     def _record_blockchain(
-        self, verification_hash: str, verification_payload: dict
+        self, verification_hash: str
     ) -> tuple[BlockchainRecord | None, str | None]:
         if not self._blockchain_enabled:
             return None, None
@@ -332,7 +339,7 @@ class VerificationPipeline:
             return None, "Blockchain enabled but contract_address not configured"
 
         try:
-            record = record_verification(self._contract_address, verification_payload)
+            record = record_verification(self._contract_address, verification_hash)
             return record, None
         except BlockchainError as e:
             return None, str(e)

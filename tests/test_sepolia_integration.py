@@ -9,10 +9,13 @@ from face_id_verification.blockchain_recording import (
     SEPOLIA_CHAIN_ID,
     _load_rpc_config,
     _validate_chain,
-    compute_verification_hash,
     get_verification_record,
     record_verification,
     verify_on_chain,
+)
+from face_id_verification.verification_hash import (
+    build_canonical_payload,
+    compute_verification_hash,
 )
 
 pytestmark = pytest.mark.integration
@@ -29,8 +32,14 @@ def deployed_contract() -> str:
     return os.environ.get("SEPOLIA_CONTRACT_ADDRESS", DEPLOYED_CONTRACT_DEFAULT)
 
 
-def _verification_data(label: str) -> dict:
-    return {"type": label, "nonce": os.urandom(16).hex()}
+def _verification_hash(label: str) -> str:
+    payload = build_canonical_payload(
+        image_content_hash="0x" + os.urandom(32).hex(),
+        faces=(),
+        reverse_search=None,
+        metadata=(),
+    )
+    return compute_verification_hash({**payload, "label": label})
 
 
 @_require_sepolia
@@ -46,10 +55,9 @@ def test_deployed_contract_is_usable():
 def test_record_verify_and_retrieve():
     contract_address = deployed_contract()
 
-    verification_data = _verification_data("sepolia_live_record")
-    verification_hash = compute_verification_hash(verification_data)
+    verification_hash = _verification_hash("sepolia_live_record")
 
-    recorded = record_verification(contract_address, verification_data)
+    recorded = record_verification(contract_address, verification_hash)
     assert recorded.confirmed is True
     assert recorded.transaction_hash and recorded.transaction_hash.startswith("0x")
     assert recorded.block_number
@@ -71,14 +79,13 @@ def test_record_verify_and_retrieve():
 def test_duplicate_recording_is_rejected():
     contract_address = deployed_contract()
 
-    verification_data = _verification_data("sepolia_duplicate")
-    verification_hash = compute_verification_hash(verification_data)
+    verification_hash = _verification_hash("sepolia_duplicate")
 
-    first = record_verification(contract_address, verification_data)
+    first = record_verification(contract_address, verification_hash)
     assert first.confirmed is True
     assert first.duplicate is False
 
-    second = record_verification(contract_address, verification_data)
+    second = record_verification(contract_address, verification_hash)
     assert second.duplicate is True
     assert second.transaction_hash is None
     assert verify_on_chain(contract_address, verification_hash) is True

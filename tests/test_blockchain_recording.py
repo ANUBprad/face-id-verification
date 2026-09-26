@@ -21,7 +21,6 @@ from face_id_verification.blockchain_recording import (
     DeploymentRecord,
     VerificationRecord,
     VerificationReadBack,
-    compute_verification_hash,
     compile_contract,
     deploy_contract,
     describe_network,
@@ -34,40 +33,6 @@ from face_id_verification.blockchain_recording import (
     _estimate_deployment_gas,
     _validate_chain,
 )
-
-
-class TestComputeVerificationHash:
-    def test_deterministic(self):
-        data = {"face_hash": "abc", "urls": ["https://example.com"]}
-        h1 = compute_verification_hash(data)
-        h2 = compute_verification_hash(data)
-        assert h1 == h2
-
-    def test_order_independent(self):
-        data1 = {"a": 1, "b": 2}
-        data2 = {"b": 2, "a": 1}
-        assert compute_verification_hash(data1) == compute_verification_hash(data2)
-
-    def test_different_data_different_hash(self):
-        data1 = {"key": "value1"}
-        data2 = {"key": "value2"}
-        assert compute_verification_hash(data1) != compute_verification_hash(data2)
-
-    def test_bytes32_format(self):
-        h = compute_verification_hash({"test": True})
-        assert h.startswith("0x")
-        assert len(h) == 66
-
-    def test_nested_structures(self):
-        data = {"outer": {"inner": [1, 2, 3]}, "flag": True}
-        h = compute_verification_hash(data)
-        assert h.startswith("0x")
-        assert len(h) == 66
-
-    def test_empty_dict(self):
-        h = compute_verification_hash({})
-        assert h.startswith("0x")
-        assert len(h) == 66
 
 
 class TestCanonicalTxHash:
@@ -463,25 +428,6 @@ class TestDeployContractExistingAddress:
                     deploy_contract(address)
 
 
-class TestRecordVerificationParsing:
-    def test_record_hash_deterministic(self):
-        data = {
-            "face_embedding_hash": "0xabc123",
-            "source_urls": ["https://example.com/photo"],
-            "metadata": {"title": "Test"},
-        }
-        h1 = compute_verification_hash(data)
-        h2 = compute_verification_hash(data)
-        assert h1 == h2
-        assert len(h1) == 66
-
-    def test_bytes32_conversion(self):
-        h = compute_verification_hash({"key": "value"})
-        b = bytes.fromhex(h[2:])
-        assert len(b) == 32
-        assert b.hex() == h[2:]
-
-
 class TestRecordVerificationMocked:
     def _contract_with(self, exists_response, get_record_response=None):
         contract = MagicMock()
@@ -509,7 +455,7 @@ class TestRecordVerificationMocked:
             with patch("face_id_verification.blockchain_recording.Web3", self._patch_web3(mock_w3)):
                 result = record_verification(
                     "0x1234567890abcdef1234567890abcdef12345678",
-                    {"payload": "test"},
+                    "0x" + "ab" * 32,
                 )
         assert result.duplicate is True
         assert result.transaction_hash is None
@@ -528,7 +474,7 @@ class TestRecordVerificationMocked:
                 with pytest.raises(BlockchainError, match="zero balance"):
                     record_verification(
                         "0x1234567890abcdef1234567890abcdef12345678",
-                        {"payload": "test"},
+                        "0x" + "ab" * 32,
                     )
         contract.functions.recordVerification.assert_not_called()
 
@@ -545,14 +491,13 @@ class TestRecordVerificationMocked:
             status=1, blockNumber=123
         )
 
-        payload = {"payload": "normalization"}
-        verification_hash = compute_verification_hash(payload)
+        verification_hash = "0x" + "ef" * 32
         with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
             mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
             with patch("face_id_verification.blockchain_recording.Web3", self._patch_web3(mock_w3)):
                 result = record_verification(
                     "0x1234567890abcdef1234567890abcdef12345678",
-                    payload,
+                    verification_hash,
                 )
 
         canonical = "0x" + tx_hash.hex()
@@ -566,6 +511,46 @@ class TestRecordVerificationMocked:
         assert result.verification_hash == verification_hash
         assert result.explorer_url == f"https://sepolia.etherscan.io/tx/{canonical}"
         assert result.transaction_hash in result.explorer_url
+
+
+class TestRecordVerificationHashHandling(TestRecordVerificationMocked):
+    """The supplied fingerprint must reach the contract byte-for-byte, un-re-derived."""
+
+    def test_supplied_hash_is_passed_through_unchanged(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        contract = self._contract_with(True)
+        mock_w3.eth.contract.return_value = contract
+
+        supplied = "0x" + "ab" * 32
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3", self._patch_web3(mock_w3)):
+                result = record_verification(
+                    "0x1234567890abcdef1234567890abcdef12345678",
+                    supplied,
+                )
+        assert result.verification_hash == supplied
+        contract.functions.verificationExists.assert_called_once_with(bytes.fromhex(supplied[2:]))
+
+    def test_hash_converts_to_thirty_two_bytes(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        contract = self._contract_with(True)
+        mock_w3.eth.contract.return_value = contract
+
+        supplied = "0x" + "cd" * 32
+        with patch("face_id_verification.blockchain_recording._load_config") as mock_load:
+            mock_load.return_value = ("https://rpc.example.com", "0x" + "1" * 64)
+            with patch("face_id_verification.blockchain_recording.Web3", self._patch_web3(mock_w3)):
+                record_verification("0x1234567890abcdef1234567890abcdef12345678", supplied)
+        passed = contract.functions.verificationExists.call_args[0][0]
+        assert len(passed) == 32
+        assert passed.hex() == supplied[2:]
+
+    def test_malformed_hash_is_rejected(self):
+        with pytest.raises(ValueError):
+            record_verification("0x1234567890abcdef1234567890abcdef12345678", "0xnothex")
 
 
 class TestVerifyOnChainMocked:
@@ -583,7 +568,7 @@ class TestVerifyOnChainMocked:
                 mock_web3.to_checksum_address = Web3.to_checksum_address
                 mock_web3.HTTPProvider.return_value = MagicMock()
                 mock_web3.return_value = mock_w3
-                h = compute_verification_hash({"a": 1})
+                h = "0x" + "12" * 32
                 result = verify_on_chain(
                     "0x1234567890abcdef1234567890abcdef12345678", h
                 )
@@ -608,7 +593,7 @@ class TestGetVerificationRecordMocked:
                 mock_web3.to_checksum_address = Web3.to_checksum_address
                 mock_web3.HTTPProvider.return_value = MagicMock()
                 mock_web3.return_value = mock_w3
-                h = compute_verification_hash({"a": 1})
+                h = "0x" + "12" * 32
                 rec = get_verification_record(
                     "0x1234567890abcdef1234567890abcdef12345678", h
                 )

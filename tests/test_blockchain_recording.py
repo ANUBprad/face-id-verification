@@ -11,15 +11,19 @@ from web3 import Web3
 from face_id_verification.blockchain_recording import (
     DEFAULT_GAS_LIMIT,
     DEPLOYMENT_GAS_MARGIN,
+    EXPECTED_NETWORK_NAME,
     MAX_DEPLOYMENT_GAS_LIMIT,
     SEPOLIA_CHAIN_ID,
+    BlockchainConfigurationError,
     BlockchainError,
+    BlockchainNetworkError,
     BlockchainRecord,
     DeploymentRecord,
     VerificationRecord,
     compute_verification_hash,
     compile_contract,
     deploy_contract,
+    describe_network,
     get_verification_record,
     record_verification,
     verify_on_chain,
@@ -200,6 +204,109 @@ class TestChainValidation:
         mock_w3 = MagicMock()
         mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
         assert _validate_chain(mock_w3) == SEPOLIA_CHAIN_ID
+
+
+class TestMainnetIsRejected:
+    def test_mainnet_raises_network_error(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = 1
+        with pytest.raises(BlockchainNetworkError):
+            _validate_chain(mock_w3)
+
+    def test_mainnet_error_names_the_network(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = 1
+        with pytest.raises(BlockchainNetworkError, match="Ethereum Mainnet"):
+            _validate_chain(mock_w3)
+
+    def test_mainnet_error_states_the_requirement(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = 1
+        with pytest.raises(
+            BlockchainNetworkError, match=f"chain ID {SEPOLIA_CHAIN_ID}"
+        ):
+            _validate_chain(mock_w3)
+
+    def test_mainnet_error_confirms_no_transaction_was_sent(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = 1
+        with pytest.raises(BlockchainNetworkError, match="No transaction was sent"):
+            _validate_chain(mock_w3)
+
+    def test_sepolia_is_accepted(self):
+        mock_w3 = MagicMock()
+        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
+        assert _validate_chain(mock_w3) == SEPOLIA_CHAIN_ID
+
+    def test_network_error_is_a_blockchain_error(self):
+        assert issubclass(BlockchainNetworkError, BlockchainError)
+
+    def test_configuration_error_is_a_blockchain_error(self):
+        assert issubclass(BlockchainConfigurationError, BlockchainError)
+
+
+class TestConfigurationErrorsAreDistinguishable:
+    def test_missing_rpc_raises_configuration_error(self):
+        with patch.dict(os.environ, {"SEPOLIA_RPC_URL": ""}, clear=False):
+            from face_id_verification.blockchain_recording import _load_rpc_config
+            with pytest.raises(BlockchainConfigurationError):
+                _load_rpc_config()
+
+    def test_missing_private_key_raises_configuration_error(self):
+        with patch.dict(
+            os.environ,
+            {"SEPOLIA_RPC_URL": "https://rpc.example.com", "SEPOLIA_PRIVATE_KEY": ""},
+            clear=False,
+        ):
+            from face_id_verification.blockchain_recording import _load_config
+            with pytest.raises(BlockchainConfigurationError):
+                _load_config()
+
+    def test_wrong_network_is_not_a_configuration_error(self):
+        assert not issubclass(BlockchainNetworkError, BlockchainConfigurationError)
+
+    def test_missing_rpc_is_not_a_network_error(self):
+        assert not issubclass(BlockchainConfigurationError, BlockchainNetworkError)
+
+    def test_missing_rpc_message_states_expected_network(self):
+        with patch.dict(os.environ, {"SEPOLIA_RPC_URL": ""}, clear=False):
+            from face_id_verification.blockchain_recording import _load_rpc_config
+            with pytest.raises(
+                BlockchainConfigurationError,
+                match=f"chain ID {SEPOLIA_CHAIN_ID}",
+            ):
+                _load_rpc_config()
+
+    def test_missing_rpc_keeps_configuration_marker(self):
+        with patch.dict(os.environ, {"SEPOLIA_RPC_URL": ""}, clear=False):
+            from face_id_verification.blockchain_recording import _load_rpc_config
+            with pytest.raises(BlockchainConfigurationError) as excinfo:
+                _load_rpc_config()
+        assert "environment variable is not set" in str(excinfo.value)
+
+    def test_missing_private_key_keeps_configuration_marker(self):
+        with patch.dict(
+            os.environ,
+            {"SEPOLIA_RPC_URL": "https://rpc.example.com", "SEPOLIA_PRIVATE_KEY": ""},
+            clear=False,
+        ):
+            from face_id_verification.blockchain_recording import _load_config
+            with pytest.raises(BlockchainConfigurationError) as excinfo:
+                _load_config()
+        assert "environment variable is not set" in str(excinfo.value)
+
+
+class TestDescribeNetwork:
+    def test_mainnet(self):
+        assert describe_network(1) == "Ethereum Mainnet (chain ID 1)"
+
+    def test_sepolia(self):
+        assert describe_network(SEPOLIA_CHAIN_ID) == (
+            f"Ethereum Sepolia (chain ID {SEPOLIA_CHAIN_ID})"
+        )
+
+    def test_unknown_network_still_reports_chain_id(self):
+        assert describe_network(137) == "unrecognised network (chain ID 137)"
 
 
 class TestDeploymentRecord:

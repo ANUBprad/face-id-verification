@@ -13,6 +13,7 @@ from web3.types import TxReceipt
 logger = logging.getLogger(__name__)
 
 SEPOLIA_CHAIN_ID = 11155111
+EXPECTED_NETWORK_NAME = "Sepolia"
 SEPOLIA_EXPLORER_BASE = "https://sepolia.etherscan.io/tx"
 
 DEFAULT_GAS_LIMIT = 100_000
@@ -22,6 +23,23 @@ MAX_DEPLOYMENT_GAS_LIMIT = 30_000_000
 
 class BlockchainError(Exception):
     """Raised when blockchain operations fail."""
+
+
+class BlockchainConfigurationError(BlockchainError):
+    """Raised when required blockchain configuration is missing or unusable."""
+
+
+class BlockchainNetworkError(BlockchainError):
+    """Raised when the RPC endpoint is not the network MukhdaX requires."""
+
+
+def describe_network(chain_id: int) -> str:
+    """Human-readable network name so a wrong RPC endpoint is immediately obvious."""
+    if chain_id == 1:
+        return f"Ethereum Mainnet (chain ID {chain_id})"
+    if chain_id == SEPOLIA_CHAIN_ID:
+        return f"Ethereum Sepolia (chain ID {chain_id})"
+    return f"unrecognised network (chain ID {chain_id})"
 
 
 @dataclass(frozen=True)
@@ -64,7 +82,10 @@ def _canonical_tx_hash(tx_hash: bytes | str) -> str:
 def _load_rpc_config() -> str:
     rpc_url = os.environ.get("SEPOLIA_RPC_URL")
     if not rpc_url:
-        raise BlockchainError("SEPOLIA_RPC_URL environment variable is not set")
+        raise BlockchainConfigurationError(
+            "SEPOLIA_RPC_URL environment variable is not set. It must be a "
+            f"{EXPECTED_NETWORK_NAME} (chain ID {SEPOLIA_CHAIN_ID}) JSON-RPC endpoint."
+        )
     return rpc_url
 
 
@@ -72,7 +93,10 @@ def _load_config() -> tuple[str, str]:
     rpc_url = _load_rpc_config()
     private_key = os.environ.get("SEPOLIA_PRIVATE_KEY")
     if not private_key:
-        raise BlockchainError("SEPOLIA_PRIVATE_KEY environment variable is not set")
+        raise BlockchainConfigurationError(
+            "SEPOLIA_PRIVATE_KEY environment variable is not set. It is needed only to "
+            "sign transactions, never to read records."
+        )
 
     return rpc_url, private_key
 
@@ -80,8 +104,10 @@ def _load_config() -> tuple[str, str]:
 def _validate_chain(w3: Web3) -> int:
     chain_id = w3.eth.chain_id
     if chain_id != SEPOLIA_CHAIN_ID:
-        raise BlockchainError(
-            f"Connected to chain ID {chain_id}, expected Sepolia ({SEPOLIA_CHAIN_ID})"
+        raise BlockchainNetworkError(
+            f"SEPOLIA_RPC_URL points to {describe_network(chain_id)}, but MukhdaX "
+            f"requires {EXPECTED_NETWORK_NAME} (chain ID {SEPOLIA_CHAIN_ID}). "
+            "No transaction was sent."
         )
     return chain_id
 

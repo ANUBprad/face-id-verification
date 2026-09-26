@@ -34,7 +34,12 @@ face-id-verification = "face_id_verification.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-face_id_verification = ["contracts/*.sol", "web/static/*", "web/static/assets/*"]
+face_id_verification = [
+    "contracts/*.sol",
+    "web/static/*",
+    "web/static/assets/*",
+    "web/static/assets/branding/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -20,11 +20,13 @@ from face_id_verification.blockchain_recording import (
     BlockchainRecord,
     DeploymentRecord,
     VerificationRecord,
+    VerificationReadBack,
     compute_verification_hash,
     compile_contract,
     deploy_contract,
     describe_network,
     get_verification_record,
+    read_back_verification,
     record_verification,
     verify_on_chain,
     _assert_sufficient_balance,
@@ -307,6 +309,85 @@ class TestDescribeNetwork:
 
     def test_unknown_network_still_reports_chain_id(self):
         assert describe_network(137) == "unrecognised network (chain ID 137)"
+
+
+class TestReadBackVerification:
+    def _record(self, recorder="0x" + "cd" * 20, timestamp=1757000000, exists=True):
+        return VerificationRecord(
+            verification_hash="0xabc",
+            recorder=recorder,
+            timestamp=timestamp,
+            exists=exists,
+        )
+
+    def test_successful_readback_is_verified(self):
+        with patch(
+            "face_id_verification.blockchain_recording.get_verification_record",
+            return_value=self._record(),
+        ):
+            result = read_back_verification("0x" + "11" * 20, "0xabc")
+        assert result.verified is True
+        assert result.exists is True
+        assert result.verification_hash == "0xabc"
+
+    def test_readback_exposes_recorder_and_timestamp(self):
+        with patch(
+            "face_id_verification.blockchain_recording.get_verification_record",
+            return_value=self._record(),
+        ):
+            result = read_back_verification("0x" + "11" * 20, "0xabc")
+        assert result.recorder == "0x" + "cd" * 20
+        assert result.timestamp == 1757000000
+
+    def test_missing_record_is_not_verified(self):
+        with patch(
+            "face_id_verification.blockchain_recording.get_verification_record",
+            return_value=self._record(exists=False, recorder="0x" + "00" * 20, timestamp=0),
+        ):
+            result = read_back_verification("0x" + "11" * 20, "0xabc")
+        assert result.exists is False
+        assert result.verified is False
+
+    def test_zero_recorder_is_not_verified(self):
+        with patch(
+            "face_id_verification.blockchain_recording.get_verification_record",
+            return_value=self._record(recorder="0x" + "00" * 20),
+        ):
+            result = read_back_verification("0x" + "11" * 20, "0xabc")
+        assert result.exists is True
+        assert result.verified is False
+
+    def test_empty_recorder_is_not_verified(self):
+        with patch(
+            "face_id_verification.blockchain_recording.get_verification_record",
+            return_value=self._record(recorder=""),
+        ):
+            result = read_back_verification("0x" + "11" * 20, "0xabc")
+        assert result.verified is False
+
+    def test_zero_timestamp_is_not_verified(self):
+        with patch(
+            "face_id_verification.blockchain_recording.get_verification_record",
+            return_value=self._record(timestamp=0),
+        ):
+            result = read_back_verification("0x" + "11" * 20, "0xabc")
+        assert result.verified is False
+
+    def test_readback_failure_propagates(self):
+        with patch(
+            "face_id_verification.blockchain_recording.get_verification_record",
+            side_effect=BlockchainError("RPC unavailable"),
+        ):
+            with pytest.raises(BlockchainError, match="RPC unavailable"):
+                read_back_verification("0x" + "11" * 20, "0xabc")
+
+    def test_readback_queries_the_submitted_hash(self):
+        with patch(
+            "face_id_verification.blockchain_recording.get_verification_record",
+            return_value=self._record(),
+        ) as mock_record:
+            read_back_verification("0x" + "11" * 20, "0x" + "ab" * 32)
+        mock_record.assert_called_once_with("0x" + "11" * 20, "0x" + "ab" * 32)
 
 
 class TestDeploymentRecord:

@@ -7,7 +7,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from face_id_verification.blockchain_recording import BlockchainRecord, compute_verification_hash
+from face_id_verification.blockchain_recording import (
+    BlockchainError,
+    BlockchainRecord,
+    VerificationReadBack,
+    compute_verification_hash,
+)
 from face_id_verification.face_detection import DetectedFace, FaceDetectionError, FaceAnalyzer
 from face_id_verification.metadata_extraction import MetadataExtractionError, PostMetadata, extract_metadata
 from face_id_verification.pipeline import (
@@ -406,13 +411,181 @@ class TestBlockchainOnChainKeyConsistency:
             contract_address="0x1234567890abcdef1234567890abcdef12345678",
         )
 
-        with patch("face_id_verification.pipeline.record_verification", fake_record_verification):
+        with (
+            patch("face_id_verification.pipeline.record_verification", fake_record_verification),
+            patch("face_id_verification.pipeline.read_back_verification") as mock_readback,
+        ):
             report = pipeline.verify(sample_image)
 
         assert report.status == "success"
         assert report.verification_hash == captured["recorded_hash"]
         assert report.blockchain is not None
         assert report.blockchain.verification_hash == report.verification_hash
+        mock_readback.assert_called_once_with(
+            "0x1234567890abcdef1234567890abcdef12345678",
+            captured["recorded_hash"],
+        )
+
+
+class TestOnChainReadBack:
+    def _pipeline(self, sample_image):
+        face = _make_face()
+        search = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+        )
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [face]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search
+        return VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=True,
+            contract_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+
+    def _record(self, confirmed=True, duplicate=False):
+        return BlockchainRecord(
+            verification_hash="0x" + "ab" * 32,
+            transaction_hash="0x" + "1" * 64,
+            block_number=123,
+            confirmed=confirmed,
+            duplicate=duplicate,
+            explorer_url="https://sepolia.etherscan.io/tx/0x" + "1" * 64,
+        )
+
+    def test_readback_runs_after_confirmed_write(self, sample_image):
+        readback = VerificationReadBack(
+            verification_hash="0x" + "ab" * 32,
+            exists=True,
+            verified=True,
+            recorder="0x" + "cd" * 20,
+            timestamp=1757000000,
+        )
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=self._record(),
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                return_value=readback,
+            ),
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        assert report.status == "success"
+        assert report.blockchain_readback is not None
+        assert report.blockchain_readback.verified is True
+        assert report.blockchain_readback_error is None
+
+    def test_readback_failure_does_not_change_status(self, sample_image):
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=self._record(),
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                side_effect=BlockchainError("Sepolia RPC unavailable"),
+            ),
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        assert report.blockchain is not None
+        assert report.blockchain_readback is None
+        assert report.blockchain_readback_error == "Sepolia RPC unavailable"
+
+    def test_unexpected_readback_error_is_captured(self, sample_image):
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=self._record(),
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                side_effect=TimeoutError("socket timeout"),
+            ),
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        assert report.blockchain_readback is None
+        assert "socket timeout" in report.blockchain_readback_error
+
+    def test_readback_runs_for_duplicate_record(self, sample_image):
+        readback = VerificationReadBack(
+            verification_hash="0x" + "ab" * 32,
+            exists=True,
+            verified=True,
+        )
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=self._record(duplicate=True),
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                return_value=readback,
+            ) as mock_readback,
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        assert report.blockchain_readback is not None
+        mock_readback.assert_called_once()
+
+    def test_no_readback_when_transaction_unconfirmed(self, sample_image):
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=self._record(confirmed=False),
+            ),
+            patch("face_id_verification.pipeline.read_back_verification") as mock_readback,
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        mock_readback.assert_not_called()
+        assert report.blockchain_readback is None
+        assert report.blockchain_readback_error is None
+
+    def test_no_readback_when_write_failed(self, sample_image):
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                side_effect=BlockchainError("write rejected"),
+            ),
+            patch("face_id_verification.pipeline.read_back_verification") as mock_readback,
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        mock_readback.assert_not_called()
+        assert report.blockchain is None
+        assert report.blockchain_readback is None
+        assert report.blockchain_readback_error is None
+
+    def test_no_readback_when_blockchain_disabled(self, sample_image):
+        face = _make_face()
+        search = _make_search_result(
+            pages=[MatchingPage(url="https://example.com/page", page_title="Page")]
+        )
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [face]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = search
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=False,
+        )
+
+        with patch("face_id_verification.pipeline.read_back_verification") as mock_readback:
+            report = pipeline.verify(sample_image)
+
+        mock_readback.assert_not_called()
+        assert report.blockchain_readback is None
+        assert report.blockchain_readback_error is None
 
 
 class TestMultipleFaces:

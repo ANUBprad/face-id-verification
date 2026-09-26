@@ -9,7 +9,11 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from face_id_verification.blockchain_recording import BlockchainRecord
+from face_id_verification.blockchain_recording import (
+    BlockchainError,
+    BlockchainRecord,
+    VerificationReadBack,
+)
 from face_id_verification.face_detection import DetectedFace
 from face_id_verification.metadata_extraction import PostMetadata
 from face_id_verification.pipeline import VerificationPipeline
@@ -433,13 +437,26 @@ class TestVerificationState:
             confirmed=True,
             explorer_url="https://sepolia.etherscan.io/tx/0xabc",
         )
+        readback = VerificationReadBack(
+            verification_hash="0xabc123",
+            exists=True,
+            verified=True,
+            recorder="0x" + "cd" * 20,
+            timestamp=1757000000,
+        )
 
         app = create_app(
             pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
         )
-        with patch(
-            "face_id_verification.pipeline.record_verification",
-            return_value=record,
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=record,
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                return_value=readback,
+            ),
         ):
             response = TestClient(app).post(
                 "/api/verify",
@@ -454,7 +471,101 @@ class TestVerificationState:
         assert verification["overall"]["state"] == "complete"
         stages = {s["name"]: s for s in verification["stages"]}
         assert stages["Blockchain"]["state"] == "complete"
+        assert stages["On-Chain Read-Back"]["state"] == "complete"
         assert verification["overall"]["issues"] == []
+
+    def test_failed_readback_is_not_reported_as_success(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc123",
+            transaction_hash="0x" + "ab" * 32,
+            block_number=12345,
+            confirmed=True,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=record,
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                side_effect=BlockchainError("RPC unavailable"),
+            ),
+        ):
+            response = TestClient(app).post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+            )
+        assert response.status_code == 200
+        verification = response.json()["verification"]
+        assert verification["overall"]["state"] == "failed"
+        stages = {s["name"]: s for s in verification["stages"]}
+        assert stages["Blockchain"]["state"] == "complete"
+        assert stages["On-Chain Read-Back"]["state"] == "failed"
+        assert any("Read-Back" in issue for issue in verification["overall"]["issues"])
+
+    def test_readback_reports_hash_absent_from_contract(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc123",
+            transaction_hash="0x" + "ab" * 32,
+            block_number=12345,
+            confirmed=True,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+        readback = VerificationReadBack(
+            verification_hash="0xabc123",
+            exists=False,
+            verified=False,
+        )
+
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=record,
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                return_value=readback,
+            ),
+        ):
+            response = TestClient(app).post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+            )
+        assert response.status_code == 200
+        verification = response.json()["verification"]
+        assert verification["overall"]["state"] == "failed"
+        stages = {s["name"]: s for s in verification["stages"]}
+        assert stages["On-Chain Read-Back"]["state"] == "failed"
+
+    def test_readback_disabled_when_blockchain_disabled(self):
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        response = TestClient(app).post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+        assert response.status_code == 200
+        verification = response.json()["verification"]
+        stages = {s["name"]: s for s in verification["stages"]}
+        assert stages["On-Chain Read-Back"]["state"] == "disabled"
+        assert verification["overall"]["state"] == "complete"
 
     def test_blockchain_failure_creates_overall_issue(self):
         app = create_app(

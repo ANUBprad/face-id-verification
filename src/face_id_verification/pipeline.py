@@ -11,7 +11,9 @@ from pathlib import Path
 from face_id_verification.blockchain_recording import (
     BlockchainError,
     BlockchainRecord,
+    VerificationReadBack,
     compute_verification_hash,
+    read_back_verification,
     record_verification,
 )
 from face_id_verification.face_detection import (
@@ -66,6 +68,8 @@ class VerificationReport:
     blockchain_error: str | None
     verification_hash: str | None
     errors: list[str] = field(default_factory=list)
+    blockchain_readback: VerificationReadBack | None = None
+    blockchain_readback_error: str | None = None
 
 
 def image_content_hash(image_path: str | Path) -> str:
@@ -174,6 +178,10 @@ class VerificationPipeline:
             verification_hash, verification_payload
         )
 
+        readback, readback_error = self._read_back_blockchain(
+            verification_hash, blockchain_record
+        )
+
         status = self._determine_status(faces, search_result, search_error, metadata_results)
 
         return VerificationReport(
@@ -188,6 +196,8 @@ class VerificationPipeline:
             blockchain_error=blockchain_error,
             verification_hash=verification_hash,
             errors=errors,
+            blockchain_readback=readback,
+            blockchain_readback_error=readback_error,
         )
 
     def _detect_faces(self, image_path: str | Path) -> tuple[list[FaceResult], str | None]:
@@ -328,6 +338,22 @@ class VerificationPipeline:
             return None, str(e)
         except Exception as e:
             return None, f"Unexpected blockchain error: {e}"
+
+    def _read_back_blockchain(
+        self, verification_hash: str, record: BlockchainRecord | None
+    ) -> tuple[VerificationReadBack | None, str | None]:
+        if not self._blockchain_enabled or not self._contract_address:
+            return None, None
+
+        if record is None or not (record.confirmed or record.duplicate):
+            return None, None
+
+        try:
+            return read_back_verification(self._contract_address, verification_hash), None
+        except BlockchainError as e:
+            return None, str(e)
+        except Exception as e:
+            return None, f"Unexpected on-chain read-back error: {e}"
 
     def _determine_status(
         self,

@@ -146,6 +146,35 @@ def _blockchain_stage(blockchain_enabled: bool, report: VerificationReport) -> S
     return _stage("Blockchain", "not_run", "Not recorded.")
 
 
+def _readback_stage(
+    blockchain_enabled: bool, report: VerificationReport, blockchain: StageState
+) -> StageState:
+    name = "On-Chain Read-Back"
+    if not blockchain_enabled:
+        return _stage(name, "disabled", "Disabled - no on-chain record was created.")
+    if blockchain.state in ("failed", "blocked", "not_run"):
+        return _stage(name, "not_run", "Not run because the on-chain record was not created.")
+    if report.blockchain_readback_error:
+        return _stage(name, "failed", report.blockchain_readback_error)
+
+    readback = report.blockchain_readback
+    if readback is None:
+        return _stage(name, "not_run", "No submitted transaction to read back.")
+    if readback.verified:
+        return _stage(
+            name,
+            "complete",
+            "Read back from Sepolia; the stored record matches the submitted hash.",
+        )
+    if not readback.exists:
+        return _stage(name, "failed", "The submitted hash was not found in the contract.")
+    return _stage(
+        name,
+        "failed",
+        "A record was returned but it did not satisfy read-back verification.",
+    )
+
+
 def build_verification_state(
     *, blockchain_enabled: bool, report: VerificationReport
 ) -> VerificationState:
@@ -156,11 +185,22 @@ def build_verification_state(
     metadata = _metadata_stage(report, face_failed, reverse)
     verification_hash = _hash_stage(report)
     blockchain = _blockchain_stage(blockchain_enabled, report)
+    readback = _readback_stage(blockchain_enabled, report, blockchain)
 
-    stages = [face, reverse, metadata, verification_hash, blockchain]
+    stages = [face, reverse, metadata, verification_hash, blockchain, readback]
     issues = [f"{stage.name}: {stage.detail}" for stage in stages if stage.state in ("failed", "blocked")]
 
-    if report.status == "success":
+    if report.status == "success" and readback.state == "failed":
+        overall = OverallState(
+            state="failed",
+            label="VERIFICATION FAILED",
+            detail=(
+                "The verification was submitted on-chain but could not be independently "
+                "read back, so the anchor is unconfirmed."
+            ),
+            issues=issues,
+        )
+    elif report.status == "success":
         if blockchain.state in ("failed", "blocked"):
             overall = OverallState(
                 state="complete",

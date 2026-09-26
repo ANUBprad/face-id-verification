@@ -68,6 +68,17 @@ class VerificationRecord:
     exists: bool
 
 
+@dataclass(frozen=True)
+class VerificationReadBack:
+    """Independent on-chain confirmation that a submitted hash is actually stored."""
+
+    verification_hash: str
+    exists: bool
+    verified: bool
+    recorder: str | None = None
+    timestamp: int | None = None
+
+
 def compute_verification_hash(data: dict) -> str:
     canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     digest = Web3.keccak(text=canonical)
@@ -297,4 +308,32 @@ def get_verification_record(contract_address: str, verification_hash: str) -> Ve
         recorder=recorder,
         timestamp=timestamp,
         exists=exists,
+    )
+
+
+def _is_meaningful_recorder(recorder: str) -> bool:
+    return bool(recorder) and int(recorder, 16) != 0
+
+
+def read_back_verification(contract_address: str, verification_hash: str) -> VerificationReadBack:
+    """Read a submitted hash back from the chain and confirm the stored record is real.
+
+    The lookup is keyed by the submitted hash, so a returned record is by construction the
+    record for that hash. Verification additionally requires a non-zero recorder and a
+    positive timestamp, so an empty or never-populated entry cannot pass.
+    """
+    record = get_verification_record(contract_address, verification_hash)
+
+    verified = (
+        record.exists
+        and _is_meaningful_recorder(record.recorder)
+        and record.timestamp > 0
+    )
+
+    return VerificationReadBack(
+        verification_hash=verification_hash,
+        exists=record.exists,
+        verified=verified,
+        recorder=record.recorder,
+        timestamp=record.timestamp,
     )

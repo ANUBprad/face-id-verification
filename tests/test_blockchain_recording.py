@@ -35,6 +35,22 @@ from face_id_verification.blockchain_recording import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_internal_compilation():
+    """Remove the unasserted solc dependency from the mocked tests.
+
+    deploy_contract, record_verification, verify_on_chain and
+    get_verification_record all call compile_contract() internally even though
+    every other boundary is mocked, so without this they would need a real solc
+    0.8.28. Only TestCompileContract asserts on compilation output, and it calls
+    compile_contract through the name imported above, so patching the module
+    attribute leaves that class compiling for real (it is marked needs_solc).
+    """
+    with patch("face_id_verification.blockchain_recording.compile_contract") as mock:
+        mock.return_value = {"abi": [], "bytecode": "0x00"}
+        yield
+
+
 class TestCanonicalTxHash:
     def test_unprefixed_hex_bytes_get_prefix(self):
         digest = Web3.keccak(b"tx-probe")
@@ -107,6 +123,7 @@ class TestBlockchainRecord:
         assert record.duplicate is True
 
 
+@pytest.mark.needs_solc
 class TestCompileContract:
     def test_compile_success(self):
         compiled = compile_contract()

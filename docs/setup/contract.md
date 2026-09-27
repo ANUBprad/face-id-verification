@@ -24,6 +24,10 @@ print(record)
 
 `deploy_contract()` also validates chain ID (`11155111`), compiles the bundled Solidity source with solc `0.8.28`, waits for the receipt, and verifies code exists at the returned address before returning the `DeploymentRecord`.
 
+### Note: every path compiles the source
+
+`record_verification()`, `verify_on_chain()`, and `get_verification_record()` also call `compile_contract()`, even though all three only need the contract ABI. That means recording or reading a record requires a working solc `0.8.28`, not just a deployed address. This is known and currently intended: the contract source is bundled, so the behavior is reproducible, but it is more work than the operations require. The intended fix is to ship the compiled ABI alongside the source and compile only on deployment, which is a packaging change rather than a bug.
+
 ## Using the deployed address
 
 There is **no `CONTRACT_ADDRESS` environment variable**. Pass the address per run:

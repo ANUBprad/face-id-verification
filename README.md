@@ -127,7 +127,7 @@ Two further provider limits worth knowing:
 
 > Lens matches are **discovery evidence**: they show where an image publicly appears. They are not identity proof and not ownership proof.
 
-A legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still available and tested but is **not** the default provider. It is the only provider that populates `partial_matching_images`, `web_entities`, and `best_guess_labels`, because those are Cloud Vision response concepts.
+A legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still available and tested but is **not** the default provider. It is the only provider that populates `partial_matching_images`, `web_entities`, and `best_guess_labels`, because those are Cloud Vision response concepts. `google-cloud-vision` is an optional extra: install it with `pip install "face-id-verification[gcv]"` (or `pip install -e ".[gcv]"` from a checkout). Without it the rest of the package, including the default SerpApi provider, works normally, and constructing the GCV searcher raises an error naming the extra to install.
 
 ## Metadata extraction
 
@@ -304,6 +304,12 @@ pip install -e .
 ```
 
 For development/testing: `pip install -e ".[dev]"`.
+
+Google Cloud Vision is **not** a runtime dependency. It is only needed for the legacy `GoogleVisionSearcher` provider, which is not the default (the default is SerpApi Google Lens). If you want it:
+
+```bash
+pip install -e ".[gcv]"
+```
 
 On first face-detection run, InsightFace downloads the `buffalo_l` model pack (needs network; then cached locally). The package bundles the Solidity contract and the web UI, so no extra build step is required.
 

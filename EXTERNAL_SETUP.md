@@ -27,7 +27,7 @@ The pipeline must perform **genuine reverse-image discovery** — given a face i
 - The request is made with the standard `requests` library; results are parsed from the actual response's `visual_matches`, `exact_matches`, and `results` sections. See [docs/setup/serpapi.md](docs/setup/serpapi.md) for the exact field mapping and for the evidence Google Lens does not return (`partial_matching_images`, `web_entities`, `best_guess_labels` stay empty under this provider).
 - Images larger than the provider's 500 KB upload limit are compressed in memory (never overwriting the original) to fit the provider's constraint.
 
-The legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still present and tested, but is **not** the default provider.
+The legacy `GoogleVisionSearcher` (Google Cloud Vision Web Detection) is still present and tested, but is **not** the default provider. It ships as the optional `gcv` extra (`pip install "face-id-verification[gcv]"`); `google-cloud-vision` is not a base dependency and the rest of the package works without it.
 
 ### The anti-fake rule
 

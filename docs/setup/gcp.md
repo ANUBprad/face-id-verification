@@ -9,6 +9,7 @@ Enables the **Reverse Image Search** stage via the legacy provider: `ImageAnnota
 - A Google Cloud project.
 - Billing enabled on that project (the Vision API is a billable service).
 - The Cloud Vision API enabled.
+- The optional `gcv` extra installed: `pip install "face-id-verification[gcv]"` (or `pip install -e ".[gcv]"` from a checkout). `google-cloud-vision` is not a base dependency, so nothing else in the package imports it.
 
 ## 1. Create (or pick) a GCP project and enable the API
 

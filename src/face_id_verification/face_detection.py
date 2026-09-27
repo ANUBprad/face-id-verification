@@ -40,30 +40,6 @@ def load_image(image_path: str | Path) -> NDArray[np.uint8]:
     return img
 
 
-def cosine_similarity(
-    a: NDArray[np.floating],
-    b: NDArray[np.floating],
-) -> float:
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
-
-    if a.ndim != 1 or b.ndim != 1:
-        raise FaceDetectionError("Embeddings must be 1-dimensional vectors")
-
-    if a.shape[0] != b.shape[0]:
-        raise FaceDetectionError(
-            f"Embedding dimension mismatch: {a.shape[0]} vs {b.shape[0]}"
-        )
-
-    norm_a = np.linalg.norm(a)
-    norm_b = np.linalg.norm(b)
-
-    if norm_a == 0 or norm_b == 0:
-        raise FaceDetectionError("Cannot compute similarity for zero-norm vector")
-
-    return float(np.dot(a, b) / (norm_a * norm_b))
-
-
 class FaceAnalyzer:
     def __init__(self, model_name: str = MODEL_NAME) -> None:
         self._model_name = model_name

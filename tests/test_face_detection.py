@@ -11,49 +11,20 @@ from face_id_verification.face_detection import (
     FaceAnalyzer,
     FaceDetectionError,
     DetectedFace,
-    cosine_similarity,
     load_image,
 )
 
 
-class TestCosineSimilarity:
-    def test_identical_vectors(self):
-        v = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-        assert cosine_similarity(v, v) == pytest.approx(1.0)
+def _cosine_similarity(a, b) -> float:
+    """Score two embeddings.
 
-    def test_orthogonal_vectors(self):
-        a = np.array([1.0, 0.0], dtype=np.float32)
-        b = np.array([0.0, 1.0], dtype=np.float32)
-        assert cosine_similarity(a, b) == pytest.approx(0.0)
-
-    def test_opposite_vectors(self):
-        a = np.array([1.0, 0.0], dtype=np.float32)
-        b = np.array([-1.0, 0.0], dtype=np.float32)
-        assert cosine_similarity(a, b) == pytest.approx(-1.0)
-
-    def test_different_vectors(self):
-        a = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        b = np.array([4.0, 5.0, 6.0], dtype=np.float32)
-        result = cosine_similarity(a, b)
-        assert 0.0 < result < 1.0
-
-    def test_mismatched_dimensions(self):
-        a = np.array([1.0, 0.0], dtype=np.float32)
-        b = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-        with pytest.raises(FaceDetectionError, match="dimension mismatch"):
-            cosine_similarity(a, b)
-
-    def test_zero_vector(self):
-        a = np.array([1.0, 0.0], dtype=np.float32)
-        b = np.array([0.0, 0.0], dtype=np.float32)
-        with pytest.raises(FaceDetectionError, match="zero-norm"):
-            cosine_similarity(a, b)
-
-    def test_non_1d_input(self):
-        a = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
-        b = np.array([1.0, 0.0], dtype=np.float32)
-        with pytest.raises(FaceDetectionError, match="1-dimensional"):
-            cosine_similarity(a, b)
+    The pipeline fingerprints embeddings rather than comparing them, so the
+    package ships no comparison helper. The integration tests below still need
+    one as a measuring instrument.
+    """
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
 class TestLoadImage:
@@ -157,7 +128,7 @@ class TestFaceAnalyzerIntegration:
         faces2 = analyzer.detect_faces(sample_face_image)
         emb2 = faces2[0].embedding
 
-        assert cosine_similarity(emb1, emb2) == pytest.approx(1.0, abs=1e-5)
+        assert _cosine_similarity(emb1, emb2) == pytest.approx(1.0, abs=1e-5)
 
     def test_different_person_lower_similarity(
         self, sample_face_image: Path, second_face_image: Path
@@ -169,5 +140,5 @@ class TestFaceAnalyzerIntegration:
         assert len(faces1) >= 1
         assert len(faces2) >= 1
 
-        sim = cosine_similarity(faces1[0].embedding, faces2[0].embedding)
+        sim = _cosine_similarity(faces1[0].embedding, faces2[0].embedding)
         assert sim < 1.0

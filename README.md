@@ -401,16 +401,20 @@ No credentials → the same flow still runs and spends nothing: reverse search r
 
 ## Testing
 
-The default command is fully offline: it never reaches the network, never needs
-credentials, and never downloads a model or the Solidity compiler.
+The offline suite reaches no network, needs no credentials, and downloads
+neither the InsightFace model nor the Solidity compiler. Select it explicitly:
 
 ```bash
-# Offline suite (the default contract)
+# Offline suite
 python -m pytest -q -m "not integration and not needs_model and not needs_solc"
 
 # Everything, including external boundaries
 python -m pytest -q -ra
 ```
+
+A bare `python -m pytest -q` is **not** offline: it also runs the six
+`needs_model` tests (which load or download `buffalo_l`) and the three
+`needs_solc` tests (which need a local `solc` 0.8.28).
 
 Tests that cross a real external boundary are marked, and unknown markers are a
 collection error:

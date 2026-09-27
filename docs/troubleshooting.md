@@ -77,9 +77,10 @@ This is expected on a machine without those secrets or tools. Run the offline su
 python -m pytest -q -m "not integration and not needs_model and not needs_solc"
 ```
 
-`-m "not integration"` is **not** a substitute: it still selects the two tests
-that load InsightFace and the three that compile the contract, so it can trigger
-a ~300 MB model download or fail on a machine with no `solc` installed.
+A bare `python -m pytest -q` is **not** a substitute for either command: with no
+`-m` filter it also runs the six tests that load InsightFace and the three that
+compile the contract, so it can trigger a ~300 MB model download or fail on a
+machine with no `solc` installed. `-m "not integration"` has the same problem.
 
 ## InsightFace model download fails (first run)
 

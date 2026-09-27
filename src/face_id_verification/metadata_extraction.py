@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
+import socket
 from dataclasses import dataclass, field
 from datetime import datetime
 from html.parser import HTMLParser
@@ -12,7 +14,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 15
-MAX_RESPONSE_SIZE = 5 * 1024 * 1024
+MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 USER_AGENT = "FaceIDVerification/1.0 (metadata extraction)"
 
 KNOWN_PLATFORMS = {
@@ -31,6 +33,14 @@ KNOWN_PLATFORMS = {
     "linkedin.com": "linkedin",
     "www.linkedin.com": "linkedin",
 }
+
+_LOCALHOST_NAMES = frozenset(
+    {
+        "localhost",
+        "localhost.localdomain",
+        "localhost.",
+    }
+)
 
 
 class MetadataExtractionError(Exception):
@@ -51,12 +61,91 @@ class PostMetadata:
     platform: str | None = None
 
 
-def _validate_url(url: str) -> None:
+def _is_prohibited_ip(addr: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return True
+
+    if ip.is_loopback:
+        return True
+    if ip.is_private:
+        return True
+    if ip.is_link_local:
+        return True
+    if ip.is_unspecified:
+        return True
+    if ip.is_multicast:
+        return True
+    if ip.is_reserved:
+        return True
+    if ip.version == 4 and ipaddress.ip_address(f"::ffff:{addr}").is_private:
+        return True
+    return False
+
+
+def _is_localhost_name(hostname: str) -> bool:
+    normalized = hostname.rstrip(".").lower()
+    return normalized in _LOCALHOST_NAMES or normalized.endswith(".localhost")
+
+
+def _normalize_hostname(hostname: str) -> str:
+    return hostname.rstrip(".").lower()
+
+
+def _resolve_host(hostname: str) -> list[str]:
+    try:
+        normalized = _normalize_hostname(hostname)
+        results = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
+        addrs = []
+        for result in results:
+            addr = result[4][0]
+            if "%" in addr:
+                addr = addr.split("%")[0]
+            addrs.append(addr)
+        return addrs
+    except socket.gaierror:
+        raise MetadataExtractionError(f"Unable to resolve hostname: {hostname}")
+    except Exception as e:
+        raise MetadataExtractionError(f"DNS resolution failed for {hostname}: {e}") from e
+
+
+def _validate_destination(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise MetadataExtractionError(f"Invalid URL scheme: {parsed.scheme}")
     if not parsed.hostname:
         raise MetadataExtractionError(f"Missing hostname in URL: {url}")
+    if parsed.username or parsed.password:
+        raise MetadataExtractionError(f"Embedded credentials are not allowed: {url}")
+
+    hostname = _normalize_hostname(parsed.hostname)
+
+    if _is_localhost_name(hostname):
+        raise MetadataExtractionError(f"Localhost destinations are not allowed: {url}")
+
+    try:
+        ip_obj = ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        if _is_prohibited_ip(hostname):
+            raise MetadataExtractionError(f"Prohibited destination IP: {url}")
+        return
+
+    resolved_addrs = _resolve_host(hostname)
+    if not resolved_addrs:
+        raise MetadataExtractionError(f"Unable to resolve hostname: {hostname}")
+
+    for addr in resolved_addrs:
+        if _is_prohibited_ip(addr):
+            raise MetadataExtractionError(
+                f"Destination resolves to prohibited address: {url}"
+            )
+
+
+def _validate_url(url: str) -> None:
+    _validate_destination(url)
 
 
 def _detect_platform(url: str) -> str | None:
@@ -179,7 +268,7 @@ def _parse_html(html: str, source_url: str) -> dict[str, str | list[str]]:
 
 
 def extract_metadata(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> PostMetadata:
-    _validate_url(url)
+    _validate_destination(url)
     platform = _detect_platform(url)
 
     try:
@@ -209,12 +298,12 @@ def extract_metadata(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> PostMetad
         raise MetadataExtractionError(f"HTTP {response.status_code}: {url}")
 
     content_length = response.headers.get("content-length")
-    if content_length and int(content_length) > MAX_RESPONSE_SIZE:
+    if content_length and int(content_length) > MAX_RESPONSE_BYTES:
         response.close()
         raise MetadataExtractionError(f"Response too large: {content_length} bytes")
 
     try:
-        content = response.content[:MAX_RESPONSE_SIZE]
+        content = response.content[:MAX_RESPONSE_BYTES]
         response.close()
     except Exception as e:
         raise MetadataExtractionError(f"Failed to read response: {e}") from e

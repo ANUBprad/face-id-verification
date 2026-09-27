@@ -1,39 +1,219 @@
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from face_id_verification.metadata_extraction import (
     DEFAULT_TIMEOUT,
     KNOWN_PLATFORMS,
+    MAX_RESPONSE_BYTES,
     MetadataExtractionError,
     PostMetadata,
     _MetaTagParser,
     _detect_platform,
+    _is_prohibited_ip,
+    _is_localhost_name,
     _parse_date,
     _parse_html,
     _resolve_url,
+    _validate_destination,
     _validate_url,
     extract_metadata,
 )
 
 
-class TestValidateUrl:
+def _mock_public_dns(*args, **kwargs):
+    return [(2, 1, 6, "", ("93.184.216.34", 0, 0, 0))]
+
+
+def _mock_private_dns(*args, **kwargs):
+    return [(2, 1, 6, "", ("192.168.1.1", 0, 0, 0))]
+
+
+def _mock_mixed_dns(*args, **kwargs):
+    return [
+        (2, 1, 6, "", ("93.184.216.34", 0, 0, 0)),
+        (2, 1, 6, "", ("192.168.1.1", 0, 0, 0)),
+    ]
+
+
+def _mock_localhost_dns(*args, **kwargs):
+    return [(2, 1, 6, "", ("127.0.0.1", 0, 0, 0))]
+
+
+class TestValidateDestination:
     def test_valid_http(self):
-        _validate_url("http://example.com")
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns):
+            _validate_destination("http://example.com")
 
     def test_valid_https(self):
-        _validate_url("https://example.com/path")
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns):
+            _validate_destination("https://example.com/path")
 
     def test_invalid_scheme(self):
         with pytest.raises(MetadataExtractionError, match="Invalid URL scheme"):
-            _validate_url("file:///etc/passwd")
+            _validate_destination("file:///etc/passwd")
 
     def test_missing_hostname(self):
         with pytest.raises(MetadataExtractionError, match="Missing hostname"):
-            _validate_url("https://")
+            _validate_destination("https://")
+
+    def test_embedded_credentials(self):
+        with pytest.raises(MetadataExtractionError, match="Embedded credentials"):
+            _validate_destination("https://user:pass@example.com/")
+
+    def test_localhost_rejected(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_localhost_dns):
+            with pytest.raises(MetadataExtractionError, match="Localhost"):
+                _validate_destination("http://localhost/")
+
+    def test_127_0_0_1_ip(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://127.0.0.1/")
+
+    def test_127_x_x_x(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://127.0.1.5/")
+
+    def test_10_x_private(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_private_dns):
+            with pytest.raises(MetadataExtractionError, match="Prohibited"):
+                _validate_destination("http://10.0.0.1/")
+
+    def test_172_16_private(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://172.16.0.1/")
+
+    def test_192_168_private(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_private_dns):
+            with pytest.raises(MetadataExtractionError, match="Prohibited"):
+                _validate_destination("http://192.168.1.1/")
+
+    def test_169_254_link_local(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://169.254.169.254/")
+
+    def test_169_254_metadata_ip(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://169.254.169.254/latest/meta-data/")
+
+    def test_0_0_0_0_unspecified(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://0.0.0.0/")
+
+    def test_ipv6_loopback(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://[::1]/")
+
+    def test_ipv6_private(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://[fc00::1]/")
+
+    def test_ipv6_link_local(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://[fe80::1]/")
+
+    def test_ipv6_multicast(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://[ff02::1]/")
+
+    def test_ipv6_unspecified(self):
+        with pytest.raises(MetadataExtractionError, match="Prohibited"):
+            _validate_destination("http://[::]/")
+
+    def test_hostname_resolving_public(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns):
+            _validate_destination("https://public.example.com/")
+
+    def test_hostname_resolving_private(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_private_dns):
+            with pytest.raises(MetadataExtractionError, match="prohibited"):
+                _validate_destination("https://private.example.com/")
+
+    def test_hostname_resolving_mixed_public_private(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_mixed_dns):
+            with pytest.raises(MetadataExtractionError, match="prohibited"):
+                _validate_destination("https://mixed.example.com/")
+
+    def test_malformed_url(self):
+        with pytest.raises(MetadataExtractionError):
+            _validate_destination("not-a-url")
+
+    def test_non_http_scheme(self):
+        with pytest.raises(MetadataExtractionError, match="Invalid URL scheme"):
+            _validate_destination("ftp://example.com/")
+
+    def test_dns_resolution_failure(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=socket.gaierror):
+            with pytest.raises(MetadataExtractionError, match="Unable to resolve"):
+                _validate_destination("https://unresolvable.example.com/")
+
+    def test_ip_literal_public_ipv4(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns):
+            _validate_destination("http://93.184.216.34/")
+
+    def test_ip_literal_public_ipv6(self):
+        with patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns):
+            _validate_destination("http://[2606:2800:220:1:248:1893:25c8:1946]/")
+
+
+class TestIsProhibitedIp:
+    def test_public_ipv4(self):
+        assert not _is_prohibited_ip("93.184.216.34")
+
+    def test_127_0_0_1(self):
+        assert _is_prohibited_ip("127.0.0.1")
+
+    def test_127_0_1_5(self):
+        assert _is_prohibited_ip("127.0.1.5")
+
+    def test_10_0_0_1(self):
+        assert _is_prohibited_ip("10.0.0.1")
+
+    def test_172_16_0_1(self):
+        assert _is_prohibited_ip("172.16.0.1")
+
+    def test_192_168_1_1(self):
+        assert _is_prohibited_ip("192.168.1.1")
+
+    def test_169_254_169_254(self):
+        assert _is_prohibited_ip("169.254.169.254")
+
+    def test_0_0_0_0(self):
+        assert _is_prohibited_ip("0.0.0.0")
+
+    def test_ipv6_loopback(self):
+        assert _is_prohibited_ip("::1")
+
+    def test_ipv6_private(self):
+        assert _is_prohibited_ip("fc00::1")
+
+    def test_ipv6_link_local(self):
+        assert _is_prohibited_ip("fe80::1")
+
+    def test_ipv6_multicast(self):
+        assert _is_prohibited_ip("ff02::1")
+
+    def test_ipv6_unspecified(self):
+        assert _is_prohibited_ip("::")
+
+
+class TestIsLocalhostName:
+    def test_localhost(self):
+        assert _is_localhost_name("localhost")
+
+    def test_localhost_dot(self):
+        assert _is_localhost_name("localhost.")
+
+    def test_example_com(self):
+        assert not _is_localhost_name("example.com")
+
+    def test_sub_localhost(self):
+        assert _is_localhost_name("mylocalhost.localhost")
 
 
 class TestDetectPlatform:
@@ -218,148 +398,109 @@ class TestParseHtml:
 
 
 class TestExtractMetadata:
-    def test_invalid_url_scheme(self):
+    def _make_mock_response(self, status_code=200, content_type="text/html", content=b"<html></html>", content_length=None):
+        mock_response = MagicMock()
+        mock_response.status_code = status_code
+        headers = {"content-type": content_type}
+        if content_length:
+            headers["content-length"] = str(content_length)
+        mock_response.headers = headers
+        mock_response.close = MagicMock()
+        return mock_response
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_invalid_url_scheme(self, mock_dns):
         with pytest.raises(MetadataExtractionError, match="Invalid URL scheme"):
             extract_metadata("file:///etc/passwd")
 
-    def test_http_failure_404(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.close = MagicMock()
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_http_failure_404(self, mock_dns):
+        mock_response = self._make_mock_response(status_code=404)
+        with patch("face_id_verification.metadata_extraction.requests.get", return_value=mock_response):
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    with pytest.raises(MetadataExtractionError, match="not found"):
+                        extract_metadata("https://example.com/missing")
 
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.return_value = mock_response
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-            with pytest.raises(MetadataExtractionError, match="not found"):
-                extract_metadata("https://example.com/missing")
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_http_failure_403(self, mock_dns):
+        mock_response = self._make_mock_response(status_code=403)
+        with patch("face_id_verification.metadata_extraction.requests.get", return_value=mock_response):
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    with pytest.raises(MetadataExtractionError, match="Access denied"):
+                        extract_metadata("https://example.com/forbidden")
 
-    def test_http_failure_403(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 403
-        mock_response.close = MagicMock()
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_http_failure_429(self, mock_dns):
+        mock_response = self._make_mock_response(status_code=429)
+        with patch("face_id_verification.metadata_extraction.requests.get", return_value=mock_response):
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    with pytest.raises(MetadataExtractionError, match="Rate limited"):
+                        extract_metadata("https://example.com/rate-limited")
 
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.return_value = mock_response
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-            with pytest.raises(MetadataExtractionError, match="Access denied"):
-                extract_metadata("https://example.com/forbidden")
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_http_failure_500(self, mock_dns):
+        mock_response = self._make_mock_response(status_code=500)
+        with patch("face_id_verification.metadata_extraction.requests.get", return_value=mock_response):
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    with pytest.raises(MetadataExtractionError, match="Server error"):
+                        extract_metadata("https://example.com/error")
 
-    def test_http_failure_429(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 429
-        mock_response.close = MagicMock()
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_timeout(self, mock_dns):
+        with patch("face_id_verification.metadata_extraction.requests.get", side_effect=TimeoutError("timed out")):
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    with pytest.raises(MetadataExtractionError, match="timed out"):
+                        extract_metadata("https://example.com/slow")
 
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.return_value = mock_response
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-            with pytest.raises(MetadataExtractionError, match="Rate limited"):
-                extract_metadata("https://example.com/rate-limited")
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_connection_failure(self, mock_dns):
+        with patch("face_id_verification.metadata_extraction.requests.get", side_effect=ConnectionError("refused")):
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    with pytest.raises(MetadataExtractionError, match="Connection failed"):
+                        extract_metadata("https://example.com/unreachable")
 
-    def test_http_failure_500(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_response.close = MagicMock()
-
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.return_value = mock_response
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-            with pytest.raises(MetadataExtractionError, match="Server error"):
-                extract_metadata("https://example.com/error")
-
-    def test_timeout(self):
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.side_effect = TimeoutError("timed out")
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-            with pytest.raises(MetadataExtractionError, match="timed out"):
-                extract_metadata("https://example.com/slow")
-
-    def test_connection_failure(self):
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.side_effect = ConnectionError("refused")
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-            with pytest.raises(MetadataExtractionError, match="Connection failed"):
-                extract_metadata("https://example.com/unreachable")
-
-    def test_success(self):
-        html = """
-        <html>
-        <head>
-            <title>Test</title>
-            <meta property="og:title" content="OG Test">
-            <meta property="og:description" content="Description">
-            <meta property="og:image" content="/img.jpg">
-        </head>
-        </html>
-        """
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_success(self, mock_dns):
+        html = '<html><head><title>Test</title><meta property="og:title" content="OG Test"></head></html>'
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.headers = {"content-type": "text/html"}
         mock_response.content = html.encode("utf-8")
         mock_response.close = MagicMock()
+        with patch("face_id_verification.metadata_extraction.requests.get", return_value=mock_response):
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    result = extract_metadata("https://instagram.com/p/abc123/")
+        assert isinstance(result, PostMetadata)
+        assert result.source_url == "https://instagram.com/p/abc123/"
+        assert result.platform == "instagram"
+        assert result.title == "OG Test"
 
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.return_value = mock_response
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_custom_timeout(self, mock_dns):
+        mock_response = self._make_mock_response(content=b"<html><head></head></html>")
+        with patch("face_id_verification.metadata_extraction.requests.get") as mock_get:
+            mock_get.return_value = mock_response
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    extract_metadata("https://example.com/page", timeout=7.5)
+                    _, kwargs = mock_get.call_args
+                    assert kwargs.get("timeout") == 7.5
 
-            result = extract_metadata("https://instagram.com/p/abc123/")
-
-            assert isinstance(result, PostMetadata)
-            assert result.source_url == "https://instagram.com/p/abc123/"
-            assert result.platform == "instagram"
-            assert result.title == "OG Test"
-
-    def test_custom_timeout(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.headers = {"content-type": "text/html"}
-        mock_response.content = "<html><head></head></html>".encode("utf-8")
-        mock_response.close = MagicMock()
-
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.return_value = mock_response
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-
-            extract_metadata("https://example.com/page", timeout=7.5)
-            _, kwargs = mock_requests.get.call_args
-            assert kwargs.get("timeout") == 7.5
-
-    def test_default_timeout(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.headers = {"content-type": "text/html"}
-        mock_response.content = "<html><head></head></html>".encode("utf-8")
-        mock_response.close = MagicMock()
-
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.return_value = mock_response
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-
-            extract_metadata("https://example.com/page")
-            _, kwargs = mock_requests.get.call_args
-            assert kwargs.get("timeout") == DEFAULT_TIMEOUT
-
-    def test_non_html_content(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.headers = {"content-type": "image/jpeg"}
-        mock_response.close = MagicMock()
-
-        with patch("face_id_verification.metadata_extraction.requests") as mock_requests:
-            mock_requests.get.return_value = mock_response
-            mock_requests.Timeout = TimeoutError
-            mock_requests.ConnectionError = ConnectionError
-
-            result = extract_metadata("https://example.com/image.jpg")
-            assert result.title is None
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_non_html_content(self, mock_dns):
+        mock_response = self._make_mock_response(content=b"<binary>", content_type="image/jpeg")
+        with patch("face_id_verification.metadata_extraction.requests.get", return_value=mock_response):
+            with patch("face_id_verification.metadata_extraction.requests.Timeout", TimeoutError):
+                with patch("face_id_verification.metadata_extraction.requests.ConnectionError", ConnectionError):
+                    result = extract_metadata("https://example.com/image.jpg")
+        assert result.title is None
 
 
 class TestPostMetadata:

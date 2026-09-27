@@ -30,18 +30,6 @@ def _validate_ethereum_address(address: str) -> str:
         raise argparse.ArgumentTypeError(f"Invalid Ethereum address: {address}")
 
 
-def _report_to_dict(report) -> dict:
-    data = asdict(report)
-    if data.get("reverse_search"):
-        rs = data["reverse_search"]
-        if "visually_similar_images" in rs:
-            rs["visually_similar_images"] = [
-                {"url": img["url"]} if isinstance(img, dict) else {"url": img}
-                for img in rs["visually_similar_images"]
-            ]
-    return data
-
-
 def _exit_code_for_status(status: str) -> int:
     mapping = {
         "success": EXIT_SUCCESS,
@@ -151,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"error": f"Pipeline failed: {e}"}))
         return EXIT_USAGE
 
-    output = _report_to_dict(report)
+    output = asdict(report)
     print(json.dumps(output, indent=2))
 
     if args.output_dir:

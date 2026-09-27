@@ -124,6 +124,53 @@ class TestJsonOutput:
         assert "status" in data
 
 
+class TestReverseSearchSerialization:
+    """Lock the exact JSON shape of the reverse_search block.
+
+    The CLI used to reshape visually_similar_images before printing. WebImage
+    carries only a url, so that reshaping is now a no-op, but the serialized
+    contract is asserted here so it cannot drift unnoticed.
+    """
+
+    @patch.object(VerificationPipeline, "verify")
+    def test_reverse_search_block_shape(self, mock_verify, fake_image, capsys):
+        mock_verify.return_value = _make_report(
+            reverse_search=ReverseSearchResult(
+                pages_with_matching_images=[
+                    MatchingPage(
+                        url="https://example.com/page",
+                        page_title="Example",
+                        full_matching_images=[WebImage(url="https://example.com/f.jpg")],
+                        partial_matching_images=[WebImage(url="https://example.com/p.jpg")],
+                    )
+                ],
+                full_matching_images=[WebImage(url="https://example.com/full.jpg")],
+                partial_matching_images=[WebImage(url="https://example.com/partial.jpg")],
+                visually_similar_images=[WebImage(url="https://example.com/sim.jpg")],
+                web_entities=[WebEntity(description="Portrait", score=0.5)],
+                best_guess_labels=["Portrait"],
+            ),
+        )
+        main(["--image", fake_image, "--skip-blockchain"])
+        block = json.loads(capsys.readouterr().out)["reverse_search"]
+
+        assert set(block) == {
+            "pages_with_matching_images",
+            "full_matching_images",
+            "partial_matching_images",
+            "visually_similar_images",
+            "web_entities",
+            "best_guess_labels",
+        }
+        assert block["visually_similar_images"] == [{"url": "https://example.com/sim.jpg"}]
+        assert block["full_matching_images"] == [{"url": "https://example.com/full.jpg"}]
+        page = block["pages_with_matching_images"][0]
+        assert set(page) == {"url", "page_title", "full_matching_images", "partial_matching_images"}
+        assert page["full_matching_images"] == [{"url": "https://example.com/f.jpg"}]
+        assert block["web_entities"] == [{"description": "Portrait", "score": 0.5}]
+        assert block["best_guess_labels"] == ["Portrait"]
+
+
 class TestSchemaIdentityInReport:
     """The public report must state which schema produced its fingerprint."""
 

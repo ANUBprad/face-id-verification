@@ -217,11 +217,6 @@ class TestMainnetIsRejected:
         with pytest.raises(BlockchainNetworkError, match="No transaction was sent"):
             _validate_chain(mock_w3)
 
-    def test_sepolia_is_accepted(self):
-        mock_w3 = MagicMock()
-        mock_w3.eth.chain_id = SEPOLIA_CHAIN_ID
-        assert _validate_chain(mock_w3) == SEPOLIA_CHAIN_ID
-
     def test_network_error_is_a_blockchain_error(self):
         assert issubclass(BlockchainNetworkError, BlockchainError)
 

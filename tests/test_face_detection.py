@@ -166,6 +166,8 @@ class TestFaceAnalyzerIntegration:
         faces1 = analyzer.detect_faces(sample_face_image)
         faces2 = analyzer.detect_faces(second_face_image)
 
-        if len(faces1) >= 1 and len(faces2) >= 1:
-            sim = cosine_similarity(faces1[0].embedding, faces2[0].embedding)
-            assert sim < 1.0
+        assert len(faces1) >= 1
+        assert len(faces2) >= 1
+
+        sim = cosine_similarity(faces1[0].embedding, faces2[0].embedding)
+        assert sim < 1.0

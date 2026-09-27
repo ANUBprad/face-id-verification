@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from web3 import Web3
 
 from face_id_verification.blockchain_recording import BlockchainRecord, VerificationReadBack
 from face_id_verification.cli import (
@@ -200,26 +201,42 @@ class TestOutputDirectory:
 
 
 class TestSkipBlockchain:
-    @patch.object(VerificationPipeline, "verify")
-    def test_blockchain_disabled(self, mock_verify, fake_image):
-        mock_verify.return_value = _make_report()
+    @patch("face_id_verification.cli.VerificationPipeline")
+    def test_blockchain_disabled(self, mock_pipeline_cls, fake_image):
+        mock_pipeline_cls.return_value.verify.return_value = _make_report()
         main(["--image", fake_image, "--skip-blockchain"])
-        call_kwargs = mock_verify.call_args
-        assert call_kwargs is not None
+
+        _, kwargs = mock_pipeline_cls.call_args
+        assert kwargs["blockchain_enabled"] is False
+        assert kwargs["contract_address"] is None
 
 
 class TestBlockchainEnabled:
-    @patch.object(VerificationPipeline, "verify")
-    def test_contract_address_passed(self, mock_verify, fake_image):
-        mock_verify.return_value = _make_report()
+    @patch("face_id_verification.cli.VerificationPipeline")
+    def test_contract_address_passed(self, mock_pipeline_cls, fake_image):
+        mock_pipeline_cls.return_value.verify.return_value = _make_report()
         addr = "0x1234567890abcdef1234567890abcdef12345678"
-        main(["--image", fake_image, "--skip-blockchain", "--contract-address", addr])
+        with patch.dict(
+            os.environ,
+            {
+                "SEPOLIA_RPC_URL": "https://rpc.example.com",
+                "SEPOLIA_PRIVATE_KEY": "0x" + "1" * 64,
+            },
+            clear=False,
+        ):
+            exit_code = main(["--image", fake_image, "--contract-address", addr])
+
+        assert exit_code == EXIT_SUCCESS
+        _, kwargs = mock_pipeline_cls.call_args
+        assert kwargs["blockchain_enabled"] is True
+        assert kwargs["contract_address"] == Web3.to_checksum_address(addr)
 
 
 class TestMissingContractAddress:
-    def test_blockchain_enabled_no_address(self, fake_image):
+    def test_blockchain_enabled_no_address(self, fake_image, capsys):
         exit_code = main(["--image", fake_image])
-        assert exit_code == EXIT_USAGE or exit_code == EXIT_BLOCKCHAIN
+        assert exit_code == EXIT_BLOCKCHAIN
+        assert "contract-address" in json.loads(capsys.readouterr().out)["error"]
 
 
 class TestBlockchainIncompleteConfig:

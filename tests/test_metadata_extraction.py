@@ -523,7 +523,19 @@ class TestExtractMetadata:
         with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
             extract_metadata("https://example.com/page", timeout=7.5)
             _, kwargs = mock_session.get.call_args
-            assert kwargs.get("timeout") == (CONNECT_TIMEOUT, READ_TIMEOUT)
+            assert kwargs.get("timeout") == 7.5
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_default_timeout(self, mock_dns):
+        mock_response = self._make_mock_response(content=b"<html><head></head></html>")
+        def iter_content(chunk_size=8192):
+            return [b"<html><head></head></html>"[i:i+chunk_size] for i in range(0, 27, chunk_size)]
+        mock_response.iter_content = iter_content
+        mock_session = self._make_mock_session(mock_response)
+        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
+            extract_metadata("https://example.com/page")
+            _, kwargs = mock_session.get.call_args
+            assert kwargs.get("timeout") == DEFAULT_TIMEOUT
 
     @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
     def test_non_html_content(self, mock_dns):

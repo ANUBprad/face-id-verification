@@ -288,7 +288,7 @@ def _is_supported_content_type(content_type_header: str) -> bool:
 
 
 def _follow_redirects(
-    session: requests.Session, url: str, *, max_redirects: int = MAX_REDIRECTS
+    session: requests.Session, url: str, *, timeout: float = DEFAULT_TIMEOUT, max_redirects: int = MAX_REDIRECTS
 ) -> tuple[str, requests.Response]:
     current_url = url
     seen: set[str] = set()
@@ -304,7 +304,7 @@ def _follow_redirects(
             response = session.get(
                 current_url,
                 allow_redirects=False,
-                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+                timeout=timeout,
             )
         except requests.Timeout as e:
             raise MetadataExtractionError(f"Request timed out: {current_url}") from e
@@ -346,7 +346,7 @@ def extract_metadata(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> PostMetad
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
 
-    final_url, response = _follow_redirects(session, url)
+    final_url, response = _follow_redirects(session, url, timeout=timeout)
 
     if response.status_code == 404 or response.status_code == 410:
         response.close()

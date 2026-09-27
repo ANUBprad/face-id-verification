@@ -269,6 +269,11 @@ def record_verification(contract_address: str, verification_hash: str) -> Blockc
     canonical_tx_hash = _canonical_tx_hash(tx_hash)
     explorer_url = f"{SEPOLIA_EXPLORER_BASE}/{canonical_tx_hash}" if confirmed else None
 
+    if not confirmed:
+        raise BlockchainError(
+            f"Transaction reverted on Sepolia: tx {canonical_tx_hash}"
+        )
+
     return BlockchainRecord(
         verification_hash=verification_hash,
         transaction_hash=canonical_tx_hash,

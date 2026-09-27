@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import socket
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
 from face_id_verification.metadata_extraction import (
-    CONNECT_TIMEOUT,
     DEFAULT_TIMEOUT,
-    READ_TIMEOUT,
-    KNOWN_PLATFORMS,
     MAX_RESPONSE_BYTES,
     MetadataExtractionError,
     PostMetadata,
@@ -24,7 +20,6 @@ from face_id_verification.metadata_extraction import (
     _parse_html,
     _resolve_url,
     _validate_destination,
-    _validate_url,
     extract_metadata,
 )
 

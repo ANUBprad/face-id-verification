@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 import os
 from unittest.mock import MagicMock, patch
@@ -11,7 +10,6 @@ from web3 import Web3
 from face_id_verification.blockchain_recording import (
     DEFAULT_GAS_LIMIT,
     DEPLOYMENT_GAS_MARGIN,
-    EXPECTED_NETWORK_NAME,
     MAX_DEPLOYMENT_GAS_LIMIT,
     SEPOLIA_CHAIN_ID,
     BlockchainConfigurationError,
@@ -20,7 +18,6 @@ from face_id_verification.blockchain_recording import (
     BlockchainRecord,
     DeploymentRecord,
     VerificationRecord,
-    VerificationReadBack,
     compile_contract,
     deploy_contract,
     describe_network,

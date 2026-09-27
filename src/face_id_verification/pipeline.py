@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -16,7 +15,6 @@ from face_id_verification.blockchain_recording import (
     record_verification,
 )
 from face_id_verification.face_detection import (
-    DetectedFace,
     FaceAnalyzer,
     FaceDetectionError,
 )

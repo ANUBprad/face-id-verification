@@ -147,10 +147,6 @@ def _validate_destination(url: str) -> None:
             )
 
 
-def _validate_url(url: str) -> None:
-    _validate_destination(url)
-
-
 def _detect_platform(url: str) -> str | None:
     parsed = urlparse(url)
     host = parsed.hostname or ""

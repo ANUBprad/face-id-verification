@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
-from dataclasses import dataclass
-from io import StringIO
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import numpy as np
 import pytest
 from web3 import Web3
 
@@ -23,17 +19,12 @@ from face_id_verification.cli import (
     build_parser,
     main,
 )
-from face_id_verification.face_detection import DetectedFace, FaceDetectionError
-from face_id_verification.metadata_extraction import MetadataExtractionError, PostMetadata
 from face_id_verification.pipeline import (
-    FaceResult,
-    MetadataResult,
     VerificationPipeline,
     VerificationReport,
 )
 from face_id_verification.reverse_search import (
     MatchingPage,
-    ReverseSearchError,
     ReverseSearchResult,
     WebEntity,
     WebImage,

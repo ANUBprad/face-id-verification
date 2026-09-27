@@ -14,7 +14,10 @@ import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 15
+CONNECT_TIMEOUT = 5
+READ_TIMEOUT = 10
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+MAX_REDIRECTS = 5
 USER_AGENT = "FaceIDVerification/1.0 (metadata extraction)"
 
 KNOWN_PLATFORMS = {
@@ -267,51 +270,113 @@ def _parse_html(html: str, source_url: str) -> dict[str, str | list[str]]:
     return result
 
 
+def _follow_redirects(
+    session: requests.Session, url: str, *, max_redirects: int = MAX_REDIRECTS
+) -> tuple[str, requests.Response]:
+    current_url = url
+    seen: set[str] = set()
+
+    for i in range(max_redirects):
+        _validate_destination(current_url)
+
+        if current_url in seen:
+            raise MetadataExtractionError(f"Redirect loop detected at: {current_url}")
+        seen.add(current_url)
+
+        try:
+            response = session.get(
+                current_url,
+                allow_redirects=False,
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+        except requests.Timeout as e:
+            raise MetadataExtractionError(f"Request timed out: {current_url}") from e
+        except requests.ConnectionError as e:
+            raise MetadataExtractionError(f"Connection failed: {current_url}") from e
+        except Exception as e:
+            raise MetadataExtractionError(f"Request failed: {e}") from e
+
+        if response.status_code in (301, 302, 303, 307, 308):
+            location = response.headers.get("Location")
+            if not location:
+                response.close()
+                raise MetadataExtractionError(f"Redirect missing Location header")
+            try:
+                next_url = _resolve_url(current_url, location.strip())
+            except Exception:
+                response.close()
+                raise MetadataExtractionError(f"Malformed redirect Location: {location}")
+
+            parsed_next = urlparse(next_url)
+            if parsed_next.scheme not in ("http", "https"):
+                response.close()
+                raise MetadataExtractionError(f"Redirect to non-http(s) scheme: {next_url}")
+
+            _validate_destination(next_url)
+            current_url = next_url
+            response.close()
+            continue
+
+        return current_url, response
+
+    raise MetadataExtractionError(f"Maximum redirect count ({max_redirects}) exceeded")
+
+
 def extract_metadata(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> PostMetadata:
     _validate_destination(url)
     platform = _detect_platform(url)
 
-    try:
-        response = requests.get(
-            url,
-            timeout=timeout,
-            headers={"User-Agent": USER_AGENT},
-            allow_redirects=True,
-            stream=True,
-        )
-    except requests.Timeout as e:
-        raise MetadataExtractionError(f"Request timed out: {url}") from e
-    except requests.ConnectionError as e:
-        raise MetadataExtractionError(f"Connection failed: {url}") from e
-    except Exception as e:
-        raise MetadataExtractionError(f"Request failed: {e}") from e
+    session = requests.Session()
+    session.headers.update({"User-Agent": USER_AGENT})
+
+    final_url, response = _follow_redirects(session, url)
 
     if response.status_code == 404 or response.status_code == 410:
-        raise MetadataExtractionError(f"Page not found: {url}")
+        response.close()
+        raise MetadataExtractionError(f"Page not found: {final_url}")
     if response.status_code == 401 or response.status_code == 403:
-        raise MetadataExtractionError(f"Access denied: {url}")
+        response.close()
+        raise MetadataExtractionError(f"Access denied: {final_url}")
     if response.status_code == 429:
-        raise MetadataExtractionError(f"Rate limited: {url}")
+        response.close()
+        raise MetadataExtractionError(f"Rate limited: {final_url}")
     if response.status_code >= 500:
-        raise MetadataExtractionError(f"Server error ({response.status_code}): {url}")
+        response.close()
+        raise MetadataExtractionError(f"Server error ({response.status_code}): {final_url}")
     if response.status_code >= 400:
-        raise MetadataExtractionError(f"HTTP {response.status_code}: {url}")
+        response.close()
+        raise MetadataExtractionError(f"HTTP {response.status_code}: {final_url}")
 
     content_length = response.headers.get("content-length")
-    if content_length and int(content_length) > MAX_RESPONSE_BYTES:
-        response.close()
-        raise MetadataExtractionError(f"Response too large: {content_length} bytes")
+    if content_length:
+        try:
+            cl = int(content_length)
+            if cl > MAX_RESPONSE_BYTES:
+                response.close()
+                raise MetadataExtractionError(f"Response too large: {content_length} bytes")
+        except (ValueError, TypeError):
+            pass
 
     try:
-        content = response.content[:MAX_RESPONSE_BYTES]
+        chunks: list[bytes] = []
+        total_bytes = 0
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                total_bytes += len(chunk)
+                if total_bytes > MAX_RESPONSE_BYTES:
+                    response.close()
+                    raise MetadataExtractionError("Response body exceeds maximum allowed size")
+                chunks.append(chunk)
         response.close()
+        content = b"".join(chunks)
     except Exception as e:
+        response.close()
         raise MetadataExtractionError(f"Failed to read response: {e}") from e
 
     content_type_header = response.headers.get("content-type", "")
     if "html" not in content_type_header and "text" not in content_type_header:
         return PostMetadata(
-            source_url=url,
+            source_url=final_url,
             platform=platform,
         )
 
@@ -321,12 +386,12 @@ def extract_metadata(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> PostMetad
         raise MetadataExtractionError(f"Failed to decode response: {e}") from e
 
     try:
-        parsed = _parse_html(html, url)
+        parsed = _parse_html(html, final_url)
     except Exception as e:
         raise MetadataExtractionError(f"Failed to parse HTML: {e}") from e
 
     return PostMetadata(
-        source_url=url,
+        source_url=final_url,
         canonical_url=parsed.get("canonical_url"),
         title=parsed.get("title"),
         description=parsed.get("description"),

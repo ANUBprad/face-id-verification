@@ -61,14 +61,25 @@ Metadata runs only after a successful reverse-image result.
 
 If reverse search succeeded but every page returned 401/403/404/429/5xx, the stage is **FAILED** with the underlying error — pages are never faked.
 
-## Integration tests are skipped
+## External tests are skipped
 
-Credential-gated integration tests skip automatically:
+Tests that reach a real external boundary skip automatically and say why:
 
 - `tests/test_reverse_search_integration.py` skips without valid Google Application Default Credentials.
-- `tests/test_sepolia_integration.py` skips without `SEPOLIA_RPC_URL` + `SEPOLIA_PRIVATE_KEY`.
+- `tests/test_sepolia_integration.py` skips without `SEPOLIA_RPC_URL`; the two tests that submit real transactions additionally need `SEPOLIA_PRIVATE_KEY` and `MUKHDAX_TEST_LIVE_WRITES=1`.
+- `tests/test_serpapi_integration.py` skips without `SERPAPI_API_KEY`.
+- `TestFaceAnalyzerIntegration` skips without `MUKHDAX_TEST_ALLOW_DOWNLOADS=1`, because its fixtures download portraits from `randomuser.me`.
+- `TestCompileContract` needs a local `solc` 0.8.28 and is marked `needs_solc`.
 
-This is expected on a machine without those secrets. Run the offline suite with `python -m pytest -m "not integration"`.
+This is expected on a machine without those secrets or tools. Run the offline suite:
+
+```bash
+python -m pytest -q -m "not integration and not needs_model and not needs_solc"
+```
+
+`-m "not integration"` is **not** a substitute: it still selects the two tests
+that load InsightFace and the three that compile the contract, so it can trigger
+a ~300 MB model download or fail on a machine with no `solc` installed.
 
 ## InsightFace model download fails (first run)
 

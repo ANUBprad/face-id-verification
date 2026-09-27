@@ -401,17 +401,59 @@ No credentials → the same flow still runs and spends nothing: reverse search r
 
 ## Testing
 
+The default command is fully offline: it never reaches the network, never needs
+credentials, and never downloads a model or the Solidity compiler.
+
 ```bash
-python -m pytest -q                 # full suite
-python -m pytest -m integration -q -ra   # credential-gated integration tests
+# Offline suite (the default contract)
+python -m pytest -q -m "not integration and not needs_model and not needs_solc"
+
+# Everything, including external boundaries
+python -m pytest -q -ra
 ```
 
-Current state:
+Tests that cross a real external boundary are marked, and unknown markers are a
+collection error:
 
-- **Full suite**: `308 passed, 9 skipped, 0 failed`.
-- **Live integration validation** (with real credentials configured): `10 passed, 3 skipped, 0 failed`.
+| Marker | Meaning | Test count |
+| --- | --- | --- |
+| `integration` | Reaches a real external service or chain | 12 |
+| `needs_model` | Initializes InsightFace / downloads `buffalo_l` | 6 |
+| `needs_network` | Contacts a remote host (e.g. `randomuser.me`, RPC) | 12 |
+| `needs_credentials` | Requires an API key, private key, or Application Default Credentials | 8 |
+| `needs_solc` | Requires a local `solc` 0.8.28 to compile the contract | 3 |
 
-The remaining three skips are legacy **Google Cloud Vision** integration tests that require Application Default Credentials — credential-gating, not failures. SerpApi integration tests need `SERPAPI_API_KEY`; Sepolia tests need `SEPOLIA_RPC_URL` + `SEPOLIA_PRIVATE_KEY`.
+Markers overlap: the Google Vision integration tests carry `integration`,
+`needs_network` and `needs_credentials`, and the face-analyzer integration
+tests additionally carry `needs_model`.
+
+Running a single category:
+
+```bash
+python -m pytest -q -m needs_model
+python -m pytest -q -m needs_solc
+```
+
+### Running the external tests
+
+Nothing external runs unless you ask for it, and the dangerous cases need an
+extra opt-in on top of credentials:
+
+- **Face downloads.** `TestFaceAnalyzerIntegration` fetches portraits from
+  `randomuser.me`. Without `MUKHDAX_TEST_ALLOW_DOWNLOADS=1` those fixtures skip
+  with an explicit reason rather than downloading.
+- **Live Sepolia writes.** `test_record_verify_and_retrieve` and
+  `test_duplicate_recording_is_rejected` submit real transactions and spend real
+  testnet ETH. They require `SEPOLIA_RPC_URL`, `SEPOLIA_PRIVATE_KEY` **and**
+  `MUKHDAX_TEST_LIVE_WRITES=1` — a populated `.env` alone is never enough. The
+  two read-only Sepolia tests need only `SEPOLIA_RPC_URL`.
+- **Google Cloud Vision** integration tests resolve Application Default
+  Credentials at test setup, not at import, so a plain run does not probe the
+  cloud metadata server.
+- **SerpApi** tests need `SERPAPI_API_KEY`; **Google Vision** tests need
+  Application Default Credentials.
+
+See [docs/troubleshooting.md](docs/troubleshooting.md) for diagnosing skips.
 
 ## Project structure
 
@@ -480,7 +522,7 @@ Planned as *future work* — none of this exists yet:
 ## Development
 
 - [AGENTS.md](AGENTS.md) states the project's engineering rules — read it before contributing.
-- Keep changes verified: `python -m pytest -q` before committing.
+- Keep changes verified: `python -m pytest -q -m "not integration and not needs_model and not needs_solc"` before committing. That is the offline suite; add `-m needs_solc` or `-m needs_model` only when you have deliberately installed the tool those tests need.
 - No CI pipeline is configured in the repository; pull requests are validated locally.
 
 ## License

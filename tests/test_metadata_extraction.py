@@ -19,6 +19,7 @@ from face_id_verification.metadata_extraction import (
     _detect_platform,
     _is_prohibited_ip,
     _is_localhost_name,
+    _is_supported_content_type,
     _parse_date,
     _parse_html,
     _resolve_url,
@@ -216,6 +217,32 @@ class TestIsLocalhostName:
 
     def test_sub_localhost(self):
         assert _is_localhost_name("mylocalhost.localhost")
+
+
+class TestIsSupportedContentType:
+    def test_text_html(self):
+        assert _is_supported_content_type("text/html")
+
+    def test_text_html_charset(self):
+        assert _is_supported_content_type("text/html; charset=utf-8")
+
+    def test_application_xhtml(self):
+        assert _is_supported_content_type("application/xhtml+xml")
+
+    def test_application_octet_stream(self):
+        assert not _is_supported_content_type("application/octet-stream")
+
+    def test_image_jpeg(self):
+        assert not _is_supported_content_type("image/jpeg")
+
+    def test_video_mp4(self):
+        assert not _is_supported_content_type("video/mp4")
+
+    def test_missing_header(self):
+        assert _is_supported_content_type("")
+
+    def test_malformed_type(self):
+        assert not _is_supported_content_type("application/pdf")
 
 
 class TestDetectPlatform:
@@ -507,6 +534,63 @@ class TestExtractMetadata:
         mock_session = self._make_mock_session(mock_response)
         with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
             result = extract_metadata("https://example.com/image.jpg")
+        assert result.title is None
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_text_html_charset_content(self, mock_dns):
+        content = b'<html><head><title>Test</title></head></html>'
+        mock_response = self._make_mock_response(status_code=200, content_type="text/html; charset=UTF-8", content=content)
+        def iter_content(chunk_size=8192):
+            return [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)]
+        mock_response.iter_content = iter_content
+        mock_session = self._make_mock_session(mock_response)
+        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
+            result = extract_metadata("https://example.com/page")
+        assert result.title == "Test"
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_application_xhtml(self, mock_dns):
+        content = b'<html><head><title>Test</title></head></html>'
+        mock_response = self._make_mock_response(status_code=200, content_type="application/xhtml+xml", content=content)
+        def iter_content(chunk_size=8192):
+            return [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)]
+        mock_response.iter_content = iter_content
+        mock_session = self._make_mock_session(mock_response)
+        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
+            result = extract_metadata("https://example.com/page")
+        assert result.title == "Test"
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_binary_content_rejected(self, mock_dns):
+        mock_response = self._make_mock_response(content=b"<binary>", content_type="application/octet-stream")
+        def iter_content(chunk_size=8192):
+            return [b"<binary>"[i:i+chunk_size] for i in range(0, 7, chunk_size)]
+        mock_response.iter_content = iter_content
+        mock_session = self._make_mock_session(mock_response)
+        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
+            result = extract_metadata("https://example.com/binary")
+        assert result.title is None
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_pdf_content_rejected(self, mock_dns):
+        mock_response = self._make_mock_response(content=b"%PDF-1.4", content_type="application/pdf")
+        def iter_content(chunk_size=8192):
+            return [b"%PDF-1.4"[i:i+chunk_size] for i in range(0, 8, chunk_size)]
+        mock_response.iter_content = iter_content
+        mock_session = self._make_mock_session(mock_response)
+        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
+            result = extract_metadata("https://example.com/doc.pdf")
+        assert result.title is None
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_malformed_content_type(self, mock_dns):
+        mock_response = self._make_mock_response(content=b"<html></html>", content_type="not-a-valid-type")
+        def iter_content(chunk_size=8192):
+            return [b"<html></html>"[i:i+chunk_size] for i in range(0, 11, chunk_size)]
+        mock_response.iter_content = iter_content
+        mock_session = self._make_mock_session(mock_response)
+        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
+            result = extract_metadata("https://example.com/badtype")
         assert result.title is None
 
     @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)

@@ -270,6 +270,23 @@ def _parse_html(html: str, source_url: str) -> dict[str, str | list[str]]:
     return result
 
 
+def _is_supported_content_type(content_type_header: str) -> bool:
+    if not content_type_header:
+        return True
+    ct = content_type_header.split(";")[0].strip().lower()
+    if not ct:
+        return True
+    if ct.startswith("text/html") or ct == "text/html":
+        return True
+    if ct == "application/xhtml+xml":
+        return True
+    if "html" in ct:
+        return True
+    if ct.startswith("text/"):
+        return False
+    return False
+
+
 def _follow_redirects(
     session: requests.Session, url: str, *, max_redirects: int = MAX_REDIRECTS
 ) -> tuple[str, requests.Response]:
@@ -374,7 +391,7 @@ def extract_metadata(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> PostMetad
         raise MetadataExtractionError(f"Failed to read response: {e}") from e
 
     content_type_header = response.headers.get("content-type", "")
-    if "html" not in content_type_header and "text" not in content_type_header:
+    if not _is_supported_content_type(content_type_header):
         return PostMetadata(
             source_url=final_url,
             platform=platform,

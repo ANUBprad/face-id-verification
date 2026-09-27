@@ -149,6 +149,7 @@ class TestNoFace:
 
         assert report.status == "no_face_detected"
         assert report.faces == []
+        assert report.errors == ["No face detected in the provided image."]
         mock_searcher.search.assert_not_called()
 
     def test_face_detector_failure(self):
@@ -377,9 +378,59 @@ class TestBlockchainConfigurationFailure:
 
         report = pipeline.verify(sample_image)
 
-        assert report.status == "success"
+        assert report.status == "blockchain_failed"
         assert report.blockchain is None
         assert report.blockchain_error == "Blockchain enabled but contract_address not configured"
+
+
+class TestBlockchainFailedStatus:
+    def test_blockchain_config_error_sets_blockchain_failed(self, sample_image):
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = _make_search_result()
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=True,
+            contract_address=None,
+        )
+        report = pipeline.verify(sample_image)
+        assert report.status == "blockchain_failed"
+        assert report.blockchain is None
+        assert report.blockchain_error is not None
+        assert any("blockchain" in e.lower() or "contract" in e.lower() for e in report.errors)
+
+    def test_readback_error_sets_blockchain_failed(self, sample_image):
+        mock_analyzer = MagicMock(spec=FaceAnalyzer)
+        mock_analyzer.detect_faces.return_value = [_make_face()]
+        mock_searcher = MagicMock()
+        mock_searcher.search.return_value = _make_search_result()
+
+        pipeline = VerificationPipeline(
+            face_analyzer=mock_analyzer,
+            reverse_searcher=mock_searcher,
+            metadata_extractor=lambda url: _make_metadata(url=url),
+            blockchain_enabled=True,
+            contract_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+        record = BlockchainRecord(
+            verification_hash="0x" + "ab" * 32,
+            transaction_hash="0x" + "1" * 64,
+            block_number=123,
+            confirmed=True,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+        with (
+            patch("face_id_verification.pipeline.record_verification", return_value=record),
+            patch("face_id_verification.pipeline.read_back_verification", side_effect=BlockchainError("RPC down")),
+        ):
+            report = pipeline.verify(sample_image)
+        assert report.status == "blockchain_failed"
+        assert report.blockchain_readback is None
+        assert report.blockchain_readback_error == "RPC down"
 
 
 class TestBlockchainOnChainKeyConsistency:
@@ -792,6 +843,7 @@ class TestOnChainReadBack:
         ):
             report = self._pipeline(sample_image).verify(sample_image)
 
+        assert report.status == "blockchain_failed"
         assert report.blockchain is not None
         assert report.blockchain_readback is None
         assert report.blockchain_readback_error == "Sepolia RPC unavailable"

@@ -50,6 +50,7 @@ def _exit_code_for_status(status: str) -> int:
         "face_detection_failed": EXIT_FACE_DETECTION,
         "reverse_search_failed": EXIT_REVERSE_SEARCH,
         "metadata_failed": EXIT_METADATA,
+        "blockchain_failed": EXIT_BLOCKCHAIN,
     }
     return mapping.get(status, EXIT_USAGE)
 

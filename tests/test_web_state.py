@@ -26,7 +26,10 @@ def _report(
     blockchain_error=None,
     errors=None,
     verification_hash="0xabc",
+    blockchain_readback_error=None,
 ):
+    if blockchain_error or blockchain_readback_error:
+        status = "blockchain_failed"
     return VerificationReport(
         status=status,
         input_image="test.jpg",
@@ -39,6 +42,7 @@ def _report(
         blockchain_error=blockchain_error,
         verification_hash=verification_hash,
         errors=errors or [],
+        blockchain_readback_error=blockchain_readback_error,
     )
 
 
@@ -388,6 +392,22 @@ class TestBlockchainStage:
         assert blockchain.state == "complete"
         assert "duplicate" in blockchain.detail
 
+    def test_pending_when_unconfirmed(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc",
+            transaction_hash="0x" + "ab" * 32,
+            block_number=0,
+            confirmed=False,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+        state = build_verification_state(
+            blockchain_enabled=True,
+            report=_report(faces=_faces(1), reverse_search=_search_with_pages(), metadata=_metadata(), blockchain=record),
+        )
+        blockchain = _by_name(state, "Blockchain")
+        assert blockchain.state == "pending"
+        assert "confirmation pending" in blockchain.detail
+
     def test_blocked_on_missing_environment(self):
         state = build_verification_state(
             blockchain_enabled=True,
@@ -472,7 +492,7 @@ class TestOverallState:
                 blockchain_error="http error",
             ),
         )
-        assert state.overall.state == "complete"
+        assert state.overall.state == "failed"
         assert len(state.overall.issues) == 1
         assert "Blockchain" in state.overall.issues[0]
 

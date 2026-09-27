@@ -363,3 +363,7 @@ class TestExitCodeMapping:
 
     def test_blockchain_maps_to_five(self):
         assert EXIT_BLOCKCHAIN == 5
+
+    def test_blockchain_failed_maps_to_five(self):
+        from face_id_verification.cli import _exit_code_for_status
+        assert _exit_code_for_status("blockchain_failed") == EXIT_BLOCKCHAIN

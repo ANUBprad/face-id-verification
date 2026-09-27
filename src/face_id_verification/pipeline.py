@@ -140,7 +140,7 @@ class VerificationPipeline:
                 blockchain=None,
                 blockchain_error=None,
                 verification_hash=None,
-                errors=[],
+                errors=["No face detected in the provided image."],
             )
 
         if len(faces) > 1:
@@ -190,7 +190,16 @@ class VerificationPipeline:
             verification_hash, blockchain_record
         )
 
-        status = self._determine_status(faces, search_result, search_error, metadata_results)
+        if blockchain_error:
+            errors.append(blockchain_error)
+        if readback_error:
+            errors.append(readback_error)
+
+        status = self._determine_status(
+            faces, search_result, search_error, metadata_results,
+            blockchain_error=blockchain_error,
+            blockchain_readback_error=readback_error,
+        )
 
         return VerificationReport(
             status=status,
@@ -368,6 +377,8 @@ class VerificationPipeline:
         search_result: ReverseSearchResult | None,
         search_error: str | None,
         metadata_results: list[MetadataResult],
+        blockchain_error: str | None = None,
+        blockchain_readback_error: str | None = None,
     ) -> str:
         if search_error:
             return "reverse_search_failed"
@@ -377,5 +388,8 @@ class VerificationPipeline:
         has_metadata = any(m.error is None for m in metadata_results)
         if not has_metadata and metadata_results:
             return "metadata_failed"
-
+        if blockchain_error:
+            return "blockchain_failed"
+        if blockchain_readback_error:
+            return "blockchain_failed"
         return "success"

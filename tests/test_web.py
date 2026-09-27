@@ -566,7 +566,7 @@ class TestVerificationState:
         verification = response.json()["verification"]
         stages = {s["name"]: s for s in verification["stages"]}
         assert stages["On-Chain Read-Back"]["state"] == "disabled"
-        assert verification["overall"]["state"] == "complete"
+        assert verification["overall"]["state"] == "failed"
 
     def test_api_declares_the_verification_schema(self):
         app = create_app(
@@ -611,7 +611,7 @@ class TestVerificationState:
             )
         assert response.status_code == 200
         verification = response.json()["verification"]
-        assert verification["overall"]["state"] == "complete"
+        assert verification["overall"]["state"] == "failed"
         assert len(verification["overall"]["issues"]) == 1
         stages = {s["name"]: s for s in verification["stages"]}
         assert stages["Blockchain"]["state"] == "failed"

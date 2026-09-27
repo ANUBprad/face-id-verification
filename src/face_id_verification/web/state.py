@@ -10,6 +10,7 @@ _STATE_LABELS = {
     "not_run": "NOT RUN",
     "disabled": "DISABLED",
     "blocked": "BLOCKED",
+    "pending": "PENDING",
 }
 
 _REVERSE_BLOCK_MARKERS = (
@@ -139,7 +140,7 @@ def _blockchain_stage(blockchain_enabled: bool, report: VerificationReport) -> S
         if record.confirmed:
             return _stage("Blockchain", "complete", "Recorded and confirmed on Sepolia.")
         if record.transaction_hash:
-            return _stage("Blockchain", "complete", "Transaction submitted; confirmation pending.")
+            return _stage("Blockchain", "pending", "Transaction submitted; confirmation pending.")
         return _stage("Blockchain", "complete", "Recorded on-chain.")
     if report.status in ("face_detection_failed", "no_face_detected", "multiple_faces"):
         return _stage("Blockchain", "not_run", "Not run because verification did not complete.")
@@ -152,7 +153,7 @@ def _readback_stage(
     name = "On-Chain Read-Back"
     if not blockchain_enabled:
         return _stage(name, "disabled", "Disabled - no on-chain record was created.")
-    if blockchain.state in ("failed", "blocked", "not_run"):
+    if blockchain.state in ("failed", "blocked", "not_run", "pending"):
         return _stage(name, "not_run", "Not run because the on-chain record was not created.")
     if report.blockchain_readback_error:
         return _stage(name, "failed", report.blockchain_readback_error)
@@ -201,11 +202,11 @@ def build_verification_state(
             issues=issues,
         )
     elif report.status == "success":
-        if blockchain.state in ("failed", "blocked"):
+        if blockchain.state == "pending":
             overall = OverallState(
                 state="complete",
                 label="VERIFICATION COMPLETE",
-                detail="Core verification completed, but the on-chain record could not be created.",
+                detail="Core verification completed; blockchain transaction submitted and pending confirmation.",
                 issues=issues,
             )
         elif blockchain_enabled:
@@ -229,6 +230,8 @@ def build_verification_state(
                 if reverse.state == "blocked"
                 else "Reverse image search failed, so metadata extraction was not run."
             )
+        elif report.status == "blockchain_failed":
+            detail = "Blockchain recording or on-chain read-back failed, so the verification anchor could not be confirmed."
         else:
             detail = {
                 "face_detection_failed": "Face detection failed, so the pipeline stopped.",

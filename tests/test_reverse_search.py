@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,15 @@ from face_id_verification.reverse_search import (
     _load_image_bytes,
     _parse_web_detection,
 )
+
+
+def _gcv_extra_installed() -> bool:
+    # find_spec locates the module without executing it, so this stays free of
+    # any credential resolution or network access at collection time.
+    try:
+        return importlib.util.find_spec("google.cloud.vision") is not None
+    except (ImportError, ValueError):
+        return False
 
 
 class TestLoadImageBytes:
@@ -225,16 +235,30 @@ class TestGoogleVisionSearcher:
         with pytest.raises(ReverseSearchError, match="does not exist"):
             searcher.search("/nonexistent/image.jpg")
 
+    def test_missing_optional_extra_is_actionable(self, tmp_path: Path):
+        img_path = tmp_path / "test.jpg"
+        img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
+
+        # The parent package must be hidden too: once google.cloud.vision has
+        # been imported it stays reachable as an attribute, so hiding only the
+        # submodule would still resolve the real one.
+        with patch.dict(
+            "sys.modules", {"google.cloud": None, "google.cloud.vision": None}
+        ):
+            searcher = GoogleVisionSearcher()
+            with pytest.raises(ReverseSearchError, match=r"\[gcv\]"):
+                searcher.search(img_path)
+
+    @pytest.mark.skipif(
+        not _gcv_extra_installed(), reason="requires the optional [gcv] extra"
+    )
     def test_client_init_failure(self, tmp_path: Path):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
 
-        # The parent package must be hidden too: once google.cloud.vision has been
-        # imported by an earlier test it stays reachable as an attribute, and the
-        # real client would be constructed (probing the cloud metadata service)
-        # instead of failing deterministically.
-        with patch.dict(
-            "sys.modules", {"google.cloud": None, "google.cloud.vision": None}
+        with patch(
+            "google.cloud.vision.ImageAnnotatorClient",
+            side_effect=RuntimeError("no credentials"),
         ):
             searcher = GoogleVisionSearcher()
             with pytest.raises(ReverseSearchError, match="Failed to initialize"):

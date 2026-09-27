@@ -333,9 +333,16 @@ class GoogleVisionSearcher:
     def _ensure_client(self) -> None:
         if self._client is not None:
             return
+
         try:
             from google.cloud import vision
+        except ImportError as e:
+            raise ReverseSearchError(
+                "Google Cloud Vision support is not installed. Install the optional "
+                "extra with: pip install 'face-id-verification[gcv]'"
+            ) from e
 
+        try:
             self._client = vision.ImageAnnotatorClient()
             logger.info("Google Cloud Vision client initialized")
         except Exception as e:

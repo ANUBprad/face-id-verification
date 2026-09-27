@@ -43,6 +43,11 @@ face_id_verification = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
 markers = [
-    "integration: tests that require network access to download test images",
+    "integration: tests that cross a real external boundary (network, blockchain, paid service)",
+    "needs_model: tests that initialize insightface/onnxruntime and may download ~300 MB of model weights",
+    "needs_network: tests that contact external hosts (randomuser.me, example.com, etc.)",
+    "needs_credentials: tests that require SERPAPI_API_KEY, SEPOLIA_RPC_URL, SEPOLIA_PRIVATE_KEY, or Google ADC",
+    "needs_solc: tests that genuinely require a real solc compiler to compile Solidity contracts",
 ]

@@ -24,9 +24,24 @@ pytestmark = [
     pytest.mark.needs_credentials,
 ]
 
-_require_sepolia = pytest.mark.skipif(
-    not (os.environ.get("SEPOLIA_RPC_URL") and os.environ.get("SEPOLIA_PRIVATE_KEY")),
-    reason="SEPOLIA_RPC_URL and SEPOLIA_PRIVATE_KEY are required for Sepolia integration",
+LIVE_WRITES_ENV = "MUKHDAX_TEST_LIVE_WRITES"
+
+_require_rpc = pytest.mark.skipif(
+    not os.environ.get("SEPOLIA_RPC_URL"),
+    reason="SEPOLIA_RPC_URL is required to reach the Sepolia testnet",
+)
+
+_require_private_key = pytest.mark.skipif(
+    not os.environ.get("SEPOLIA_PRIVATE_KEY"),
+    reason="SEPOLIA_PRIVATE_KEY is required to sign live Sepolia transactions",
+)
+
+_require_live_writes = pytest.mark.skipif(
+    os.environ.get(LIVE_WRITES_ENV) != "1",
+    reason=(
+        f"{LIVE_WRITES_ENV}=1 must be set explicitly: these tests submit real "
+        "Sepolia transactions and spend real testnet ETH"
+    ),
 )
 
 DEPLOYED_CONTRACT_DEFAULT = "0x76BfcB45C918C13fAAAf79D51f94fE5B29aFEB53"
@@ -46,7 +61,7 @@ def _verification_hash(label: str) -> str:
     return compute_verification_hash({**payload, "label": label})
 
 
-@_require_sepolia
+@_require_rpc
 def test_deployed_contract_is_usable():
     w3 = Web3(Web3.HTTPProvider(_load_rpc_config()))
     _validate_chain(w3)
@@ -55,7 +70,9 @@ def test_deployed_contract_is_usable():
     assert code and code != b"\x00"
 
 
-@_require_sepolia
+@_require_rpc
+@_require_private_key
+@_require_live_writes
 def test_record_verify_and_retrieve():
     contract_address = deployed_contract()
 
@@ -79,7 +96,9 @@ def test_record_verify_and_retrieve():
     assert record.recorder.startswith("0x")
 
 
-@_require_sepolia
+@_require_rpc
+@_require_private_key
+@_require_live_writes
 def test_duplicate_recording_is_rejected():
     contract_address = deployed_contract()
 
@@ -95,7 +114,7 @@ def test_duplicate_recording_is_rejected():
     assert verify_on_chain(contract_address, verification_hash) is True
 
 
-@_require_sepolia
+@_require_rpc
 def test_chain_identity_validation():
     w3 = Web3(Web3.HTTPProvider(_load_rpc_config()))
     assert w3.eth.chain_id == SEPOLIA_CHAIN_ID

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import cv2
@@ -12,6 +13,8 @@ try:
     import requests
 except ImportError:
     requests = None
+
+ALLOW_DOWNLOADS_ENV = "MUKHDAX_TEST_ALLOW_DOWNLOADS"
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +40,27 @@ def _download_face(url: str, path: Path) -> bool:
         return False
 
 
+def _remote_face(url: str, path: Path, fixture_name: str) -> Path:
+    """Resolve a portrait fixture, never reaching the network unless asked to.
+
+    Test portraits are hosted on randomuser.me. Fetching one is opt-in so that a
+    plain `pytest` run cannot make an unintended external request.
+    """
+    if path.exists() and path.stat().st_size > 1000:
+        return path
+
+    if os.environ.get(ALLOW_DOWNLOADS_ENV) != "1":
+        pytest.skip(
+            f"{fixture_name} has no local copy and downloading test faces is opt-in; "
+            f"set {ALLOW_DOWNLOADS_ENV}=1 to fetch {url}"
+        )
+
+    if not _download_face(url, path):
+        pytest.skip(f"Could not download {fixture_name} from {url}")
+
+    return path
+
+
 @pytest.fixture(scope="session")
 def _test_images_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp_path_factory.mktemp("test_images")
@@ -44,28 +68,20 @@ def _test_images_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def sample_face_image(_test_images_dir: Path) -> Path:
-    img_path = _test_images_dir / "face1.jpg"
-    if img_path.exists() and img_path.stat().st_size > 1000:
-        return img_path
-
-    url = "https://randomuser.me/api/portraits/men/32.jpg"
-    if _download_face(url, img_path):
-        return img_path
-
-    pytest.skip("Cannot download test face image")
+    return _remote_face(
+        "https://randomuser.me/api/portraits/men/32.jpg",
+        _test_images_dir / "face1.jpg",
+        "sample_face_image",
+    )
 
 
 @pytest.fixture(scope="session")
 def second_face_image(_test_images_dir: Path) -> Path:
-    img_path = _test_images_dir / "face2.jpg"
-    if img_path.exists() and img_path.stat().st_size > 1000:
-        return img_path
-
-    url = "https://randomuser.me/api/portraits/women/44.jpg"
-    if _download_face(url, img_path):
-        return img_path
-
-    pytest.skip("Cannot download second test face image")
+    return _remote_face(
+        "https://randomuser.me/api/portraits/women/44.jpg",
+        _test_images_dir / "face2.jpg",
+        "second_face_image",
+    )
 
 
 @pytest.fixture(scope="session")

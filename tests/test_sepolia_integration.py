@@ -18,7 +18,11 @@ from face_id_verification.verification_hash import (
     compute_verification_hash,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.needs_network,
+    pytest.mark.needs_credentials,
+]
 
 _require_sepolia = pytest.mark.skipif(
     not (os.environ.get("SEPOLIA_RPC_URL") and os.environ.get("SEPOLIA_PRIVATE_KEY")),

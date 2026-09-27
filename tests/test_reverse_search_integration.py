@@ -9,7 +9,11 @@ from face_id_verification.reverse_search import (
     ReverseSearchError,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.needs_network,
+    pytest.mark.needs_credentials,
+]
 
 
 def _adc_available() -> bool:

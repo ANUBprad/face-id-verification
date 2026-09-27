@@ -9,7 +9,11 @@ from face_id_verification.reverse_search import (
     SerpApiLensSearcher,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.needs_network,
+    pytest.mark.needs_credentials,
+]
 
 _require_key = pytest.mark.skipif(
     not os.environ.get("SERPAPI_API_KEY"),

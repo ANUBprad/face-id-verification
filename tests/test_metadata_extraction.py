@@ -568,6 +568,30 @@ class TestExtractMetadata:
                 extract_metadata("https://example.com/large")
 
     @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_content_length_exactly_limit(self, mock_dns):
+        content = b"x" * MAX_RESPONSE_BYTES
+        mock_response = self._make_mock_response(status_code=200, content_type="text/html", content_length=MAX_RESPONSE_BYTES, content=content)
+        def iter_content(chunk_size=8192):
+            return [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)]
+        mock_response.iter_content = iter_content
+        mock_session = self._make_mock_session(mock_response)
+        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
+            result = extract_metadata("https://example.com/exact")
+        assert result is not None
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
+    def test_no_content_length(self, mock_dns):
+        content = b"<html><head><title>Test</title></head><body></body></html>"
+        mock_response = self._make_mock_response(status_code=200, content_type="text/html", content=content)
+        def iter_content(chunk_size=8192):
+            return [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)]
+        mock_response.iter_content = iter_content
+        mock_session = self._make_mock_session(mock_response)
+        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
+            result = extract_metadata("https://example.com/nocontentlength")
+        assert result.title == "Test"
+
+    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
     def test_streaming_body_oversized(self, mock_dns):
         oversize_content = b"x" * (MAX_RESPONSE_BYTES + 100)
         mock_response = MagicMock()

@@ -94,6 +94,7 @@ class TestDetectedFace:
         assert face.embedding.shape == (EMBEDDING_DIMENSION,)
 
 
+@pytest.mark.needs_model
 class TestFaceAnalyzer:
     def test_model_initialization(self):
         analyzer = FaceAnalyzer()
@@ -105,13 +106,25 @@ class TestFaceAnalyzer:
         faces = analyzer.detect_faces(blank_image)
         assert faces == []
 
+
+class TestFaceAnalyzerInputValidation:
+    """A bad path is rejected before InsightFace is imported, so these need no model."""
+
     def test_invalid_image(self):
         analyzer = FaceAnalyzer()
         with pytest.raises(FaceDetectionError, match="does not exist"):
             analyzer.detect_faces("/nonexistent/image.jpg")
 
+    def test_invalid_image_does_not_initialize_the_model(self):
+        analyzer = FaceAnalyzer()
+        with pytest.raises(FaceDetectionError, match="does not exist"):
+            analyzer.detect_faces("/nonexistent/image.jpg")
+        assert analyzer._app is None
+
 
 @pytest.mark.integration
+@pytest.mark.needs_model
+@pytest.mark.needs_network
 class TestFaceAnalyzerIntegration:
     def test_single_face(self, sample_face_image: Path):
         analyzer = FaceAnalyzer()

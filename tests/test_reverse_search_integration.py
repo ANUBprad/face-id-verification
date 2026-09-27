@@ -26,13 +26,20 @@ def _adc_available() -> bool:
         return False
 
 
-_require_gcv = pytest.mark.skipif(
-    not _adc_available(),
-    reason="Google Cloud Application Default Credentials with a project are required",
-)
+@pytest.fixture(autouse=True)
+def _require_gcv_credentials():
+    """Gate on Application Default Credentials at setup time.
+
+    Resolving ADC probes the GCE metadata server, so evaluating it at import
+    time would reach the network during collection even when every test in this
+    module is deselected.
+    """
+    if not _adc_available():
+        pytest.skip(
+            "Google Cloud Application Default Credentials with a project are required"
+        )
 
 
-@_require_gcv
 def test_real_web_detection_structural(gcv_test_image: Path):
     searcher = GoogleVisionSearcher(timeout=30)
     result = searcher.search(gcv_test_image)
@@ -65,14 +72,12 @@ def test_real_web_detection_structural(gcv_test_image: Path):
         assert isinstance(label, str)
 
 
-@_require_gcv
 def test_real_no_match_is_not_error(gcv_test_image: Path):
     searcher = GoogleVisionSearcher(timeout=30)
     result = searcher.search(gcv_test_image)
     assert result is not None
 
 
-@_require_gcv
 def test_image_read_error_is_surfaceable():
     searcher = GoogleVisionSearcher(timeout=30)
     with pytest.raises(ReverseSearchError, match="does not exist"):

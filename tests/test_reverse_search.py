@@ -229,7 +229,13 @@ class TestGoogleVisionSearcher:
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
 
-        with patch.dict("sys.modules", {"google.cloud.vision": None}):
+        # The parent package must be hidden too: once google.cloud.vision has been
+        # imported by an earlier test it stays reachable as an attribute, and the
+        # real client would be constructed (probing the cloud metadata service)
+        # instead of failing deterministically.
+        with patch.dict(
+            "sys.modules", {"google.cloud": None, "google.cloud.vision": None}
+        ):
             searcher = GoogleVisionSearcher()
             with pytest.raises(ReverseSearchError, match="Failed to initialize"):
                 searcher.search(img_path)

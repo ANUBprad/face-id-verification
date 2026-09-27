@@ -885,7 +885,7 @@ class TestOnChainReadBack:
         assert report.blockchain_readback is not None
         mock_readback.assert_called_once()
 
-    def test_no_readback_when_transaction_unconfirmed(self, sample_image):
+    def test_no_readback_when_transaction_reverted(self, sample_image):
         with (
             patch(
                 "face_id_verification.pipeline.record_verification",
@@ -896,8 +896,10 @@ class TestOnChainReadBack:
             report = self._pipeline(sample_image).verify(sample_image)
 
         mock_readback.assert_not_called()
+        assert report.status == "blockchain_failed"
+        assert report.blockchain is None
         assert report.blockchain_readback is None
-        assert report.blockchain_readback_error is None
+        assert "reverted" in report.blockchain_error.lower()
 
     def test_no_readback_when_write_failed(self, sample_image):
         with (

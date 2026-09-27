@@ -349,6 +349,10 @@ class VerificationPipeline:
 
         try:
             record = record_verification(self._contract_address, verification_hash)
+            if not record.confirmed:
+                raise BlockchainError(
+                    f"Transaction reverted on Sepolia: tx {record.transaction_hash}"
+                )
             return record, None
         except BlockchainError as e:
             return None, str(e)

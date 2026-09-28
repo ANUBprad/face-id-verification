@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 import re
 import socket
+import ssl
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
 from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlsplit
 
 import requests
+import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.util import Timeout
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +119,12 @@ def _resolve_host(hostname: str) -> list[str]:
         raise MetadataExtractionError(f"DNS resolution failed for {hostname}: {e}") from e
 
 
-def _validate_destination(url: str) -> None:
+def _validate_url_shape(url: str) -> str:
+    """Check everything about a URL that needs no DNS. Returns the normalized hostname.
+
+    Split out from address resolution so the transport can enforce the policy on the
+    connection it actually makes, without this module resolving every name twice.
+    """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise MetadataExtractionError(f"Invalid URL scheme: {parsed.scheme}")
@@ -123,18 +134,25 @@ def _validate_destination(url: str) -> None:
         raise MetadataExtractionError(f"Embedded credentials are not allowed: {url}")
 
     hostname = _normalize_hostname(parsed.hostname)
-
     if _is_localhost_name(hostname):
         raise MetadataExtractionError(f"Localhost destinations are not allowed: {url}")
+    return hostname
 
+
+def _validated_addresses(hostname: str) -> list[str]:
+    """Return every address for a hostname, refusing the whole host if any is prohibited.
+
+    A host that resolves to both a public and an internal address is refused outright
+    rather than filtered, because which one gets used is not ours to decide.
+    """
     try:
-        ip_obj = ipaddress.ip_address(hostname)
+        ipaddress.ip_address(hostname)
     except ValueError:
         pass
     else:
         if _is_prohibited_ip(hostname):
-            raise MetadataExtractionError(f"Prohibited destination IP: {url}")
-        return
+            raise MetadataExtractionError(f"Prohibited destination IP: {hostname}")
+        return [hostname]
 
     resolved_addrs = _resolve_host(hostname)
     if not resolved_addrs:
@@ -143,8 +161,142 @@ def _validate_destination(url: str) -> None:
     for addr in resolved_addrs:
         if _is_prohibited_ip(addr):
             raise MetadataExtractionError(
-                f"Destination resolves to prohibited address: {url}"
+                f"Destination resolves to prohibited address: {hostname}"
             )
+    return resolved_addrs
+
+
+def _validate_destination(url: str) -> None:
+    """Refuse any destination this module must never connect to."""
+    _validated_addresses(_validate_url_shape(url))
+
+
+def _host_header(hostname: str, port: int, scheme: str) -> str:
+    """The Host header for a pinned connection, which must name the host, not the IP."""
+    literal = f"[{hostname}]" if ":" in hostname else hostname
+    default = 443 if scheme == "https" else 80
+    return literal if port == default else f"{literal}:{port}"
+
+
+@lru_cache(maxsize=None)
+def _default_ssl_context() -> ssl.SSLContext:
+    """A verifying TLS context. Certificate and hostname checking stay on, always.
+
+    Cached because building one re-reads the trust store from disk, and pinning builds a
+    fresh pool for every hop.
+    """
+    return ssl.create_default_context()
+
+
+def _ssl_context(verify: object) -> ssl.SSLContext:
+    if verify is True:
+        return _default_ssl_context()
+    if isinstance(verify, str):
+        if os.path.isdir(verify):
+            return ssl.create_default_context(capath=verify)
+        return ssl.create_default_context(cafile=verify)
+    raise MetadataExtractionError(f"Unsupported TLS verification setting: {verify!r}")
+
+
+class PinnedDestinationAdapter(HTTPAdapter):
+    """Connects to an IP that has already been checked, not to a name that may change.
+
+    Validating a hostname and then fetching it by hostname is not enforcement: the
+    transport resolves the name again, so a short-TTL record can answer the check with a
+    public address and the connection with an internal one. Connecting to a checked address
+    removes the second resolution, so the address the policy inspected is the address the
+    socket reaches.
+
+    The name is still what identifies the server: the ``Host`` header, the TLS SNI, and the
+    certificate hostname check all use the original hostname, so a pinned connection is
+    indistinguishable from a direct one to the server and to its certificate.
+    """
+
+    def send(self, request, **kwargs):  # type: ignore[no-untyped-def]
+        hostname = _validate_url_shape(request.url)
+        split = urlsplit(request.url)
+        scheme = split.scheme
+        port = split.port or (443 if scheme == "https" else 80)
+        addresses = _validated_addresses(hostname)
+
+        headers = dict(request.headers)
+        headers["Host"] = _host_header(hostname, port, scheme)
+        target = split.path or "/"
+        if split.query:
+            target = f"{target}?{split.query}"
+
+        timeout = _urllib3_timeout(kwargs.get("timeout"))
+        verify = kwargs.get("verify", True)
+        last_error: Exception | None = None
+
+        for address in addresses:
+            pool = self._pinned_pool(scheme, address, port, hostname, verify, timeout)
+            try:
+                raw = pool.urlopen(
+                    request.method,
+                    target,
+                    headers=headers,
+                    redirect=False,
+                    preload_content=False,
+                    retries=False,
+                    timeout=timeout,
+                )
+            except urllib3.exceptions.NewConnectionError as e:
+                # urllib3 makes this a subclass of ConnectTimeoutError, so it has to be
+                # caught first: a refused connection is not a timeout and reads as one.
+                last_error = requests.ConnectionError(f"Failed to reach {hostname}: {e}")
+                logger.debug("Connection refused for %s via %s", hostname, address)
+            except urllib3.exceptions.TimeoutError as e:
+                last_error = requests.Timeout(f"Request timed out for {hostname}")
+                logger.debug("Timeout reaching %s via %s: %s", hostname, address, e)
+            except urllib3.exceptions.HTTPError as e:
+                last_error = requests.ConnectionError(f"Failed to reach {hostname}: {e}")
+                logger.debug("Failure reaching %s via %s: %s", hostname, address, e)
+            else:
+                # build_response is the documented requests hook for adapting an urllib3
+                # response, so header, encoding, and streaming behaviour stay unchanged.
+                return self.build_response(request, raw)
+
+        raise last_error or requests.ConnectionError(f"Failed to reach {hostname}")
+
+    def _pinned_pool(self, scheme, address, port, hostname, verify, timeout):
+        if scheme != "https":
+            return urllib3.HTTPConnectionPool(address, port, timeout=timeout)
+        return urllib3.HTTPSConnectionPool(
+            address,
+            port,
+            timeout=timeout,
+            ssl_context=_ssl_context(verify),
+            assert_hostname=hostname,
+            server_hostname=hostname,
+        )
+
+
+def _urllib3_timeout(timeout: object) -> Timeout:
+    """Translate a requests timeout into urllib3's form, preserving per-operation semantics."""
+    if timeout is None:
+        return Timeout(
+            connect=Timeout.DEFAULT_TIMEOUT, read=Timeout.DEFAULT_TIMEOUT
+        )
+    if isinstance(timeout, tuple):
+        return Timeout(connect=timeout[0], read=timeout[1])
+    return Timeout(connect=timeout, read=timeout)
+
+
+def pinned_session() -> requests.Session:
+    """A session that can only reach validated, pinned destinations.
+
+    Environment proxies are deliberately not honoured: with a proxy in the path the socket
+    would be opened to the proxy, the proxy would resolve the name itself, and the pinning
+    this module depends on would be silently void.
+    """
+    session = requests.Session()
+    session.trust_env = False
+    adapter = PinnedDestinationAdapter()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    session.headers.update({"User-Agent": USER_AGENT})
+    return session
 
 
 def _detect_platform(url: str) -> str | None:
@@ -290,8 +442,6 @@ def _follow_redirects(
     seen: set[str] = set()
 
     for i in range(max_redirects):
-        _validate_destination(current_url)
-
         if current_url in seen:
             raise MetadataExtractionError(f"Redirect loop detected at: {current_url}")
         seen.add(current_url)
@@ -325,7 +475,8 @@ def _follow_redirects(
                 response.close()
                 raise MetadataExtractionError(f"Redirect to non-http(s) scheme: {next_url}")
 
-            _validate_destination(next_url)
+            # The next hop is not pre-validated here: the transport validates the address it
+            # is about to connect to, which is the check that has to hold.
             current_url = next_url
             response.close()
             continue
@@ -339,8 +490,7 @@ def extract_metadata(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> PostMetad
     _validate_destination(url)
     platform = _detect_platform(url)
 
-    session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
+    session = pinned_session()
 
     final_url, response = _follow_redirects(session, url, timeout=timeout)
 

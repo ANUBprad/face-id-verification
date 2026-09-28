@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib.util
 import socket
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,18 +13,29 @@ from face_id_verification.metadata_extraction import (
     DEFAULT_TIMEOUT,
     MAX_RESPONSE_BYTES,
     MetadataExtractionError,
+    PinnedDestinationAdapter,
     PostMetadata,
     _MetaTagParser,
     _detect_platform,
+    _host_header,
     _is_prohibited_ip,
     _is_localhost_name,
     _is_supported_content_type,
     _parse_date,
     _parse_html,
     _resolve_url,
+    _urllib3_timeout,
     _validate_destination,
     extract_metadata,
+    pinned_session,
 )
+
+
+def _cryptography_available() -> bool:
+    try:
+        return importlib.util.find_spec("cryptography") is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def _mock_public_dns(*args, **kwargs):
@@ -601,15 +615,6 @@ class TestExtractMetadata:
         assert result.title is None
 
     @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
-    def test_redirect_to_private_ip_blocked(self, mock_dns):
-        redirect_response = self._make_mock_response(status_code=302, content_type="text/plain", content=b"")
-        redirect_response.headers["Location"] = "http://169.254.169.254/latest/meta-data/"
-        mock_session = self._make_mock_session(redirect_response)
-        with patch("face_id_verification.metadata_extraction.requests.Session", return_value=mock_session):
-            with pytest.raises(MetadataExtractionError, match="Prohibited"):
-                extract_metadata("https://example.com/")
-
-    @patch("face_id_verification.metadata_extraction.socket.getaddrinfo", side_effect=_mock_public_dns)
     def test_public_to_public_redirect(self, mock_dns):
         redirect_response = self._make_mock_response(status_code=301, content_type="text/plain", content=b"")
         redirect_response.headers["Location"] = "https://example.com/new-page"
@@ -729,3 +734,467 @@ class TestPostMetadata:
         assert meta.title is None
         assert meta.images == []
         assert meta.platform is None
+
+
+class TestPinnedDestinationTransport:
+    """The address the policy inspected must be the address the socket reaches.
+
+    Validating a name and then connecting to the name is not enforcement: the name is
+    resolved a second time inside the transport, so a short-TTL record can answer the check
+    with a public address and the connection with an internal one.
+    """
+
+    @staticmethod
+    def _prepared(url: str) -> requests.PreparedRequest:
+        return requests.Request("GET", url).prepare()
+
+    def test_a_prohibited_literal_ip_never_opens_a_socket(self):
+        adapter = PinnedDestinationAdapter()
+        with patch("face_id_verification.metadata_extraction.urllib3.HTTPConnectionPool") as pool:
+            with pytest.raises(MetadataExtractionError, match="Prohibited"):
+                adapter.send(self._prepared("http://169.254.169.254/latest/meta-data/"), timeout=5)
+        pool.assert_not_called()
+
+    def test_a_localhost_literal_never_opens_a_socket(self):
+        adapter = PinnedDestinationAdapter()
+        with patch("face_id_verification.metadata_extraction.urllib3.HTTPConnectionPool") as pool:
+            with pytest.raises(MetadataExtractionError, match="Prohibited"):
+                adapter.send(self._prepared("http://127.0.0.1/"), timeout=5)
+        pool.assert_not_called()
+
+    def test_a_name_that_resolves_to_a_prohibited_address_never_opens_a_socket(self):
+        """DNS rebinding in its simplest form: the answer itself is internal."""
+        adapter = PinnedDestinationAdapter()
+        with patch(
+            "face_id_verification.metadata_extraction.socket.getaddrinfo",
+            return_value=[(2, 1, 6, "", ("10.1.2.3", 0, 0, 0))],
+        ):
+            with patch(
+                "face_id_verification.metadata_extraction.urllib3.HTTPConnectionPool"
+            ) as pool:
+                with pytest.raises(MetadataExtractionError, match="prohibited"):
+                    adapter.send(self._prepared("http://rebind.example/"), timeout=5)
+        pool.assert_not_called()
+
+    def test_a_name_resolving_to_both_public_and_private_is_refused_entirely(self):
+        adapter = PinnedDestinationAdapter()
+        answers = [
+            (2, 1, 6, "", ("93.184.216.34", 0, 0, 0)),
+            (2, 1, 6, "", ("192.168.1.10", 0, 0, 0)),
+        ]
+        with patch(
+            "face_id_verification.metadata_extraction.socket.getaddrinfo", return_value=answers
+        ):
+            with patch(
+                "face_id_verification.metadata_extraction.urllib3.HTTPConnectionPool"
+            ) as pool:
+                with pytest.raises(MetadataExtractionError, match="prohibited"):
+                    adapter.send(self._prepared("http://mixed.example/"), timeout=5)
+        pool.assert_not_called()
+
+    def test_the_connection_targets_the_validated_ip_not_the_name(self):
+        """The single most important invariant: the socket goes to the checked address."""
+        import urllib3
+
+        adapter = PinnedDestinationAdapter()
+        with patch(
+            "face_id_verification.metadata_extraction.socket.getaddrinfo",
+            return_value=[(2, 1, 6, "", ("93.184.216.34", 0, 0, 0))],
+        ):
+            with patch(
+                "face_id_verification.metadata_extraction.urllib3.HTTPConnectionPool"
+            ) as pool:
+                pool.return_value.urlopen.side_effect = urllib3.exceptions.NewConnectionError(
+                    None, "refused"
+                )
+                with pytest.raises(requests.ConnectionError):
+                    adapter.send(self._prepared("http://rebind.example/a?b=c"), timeout=5)
+        assert pool.call_args.args[0] == "93.184.216.34", "must dial the resolved address"
+        sent = pool.return_value.urlopen.call_args
+        assert sent.args[1] == "/a?b=c", "path and query must survive pinning"
+        assert sent.kwargs["headers"]["Host"] == "rebind.example", "Host must name the host"
+
+    def test_tls_identity_is_bound_to_the_hostname_not_the_ip(self):
+        """SNI and certificate verification must both use the name, or pinning breaks TLS."""
+        import urllib3
+
+        adapter = PinnedDestinationAdapter()
+        with patch(
+            "face_id_verification.metadata_extraction.socket.getaddrinfo",
+            return_value=[(2, 1, 6, "", ("93.184.216.34", 0, 0, 0))],
+        ):
+            with patch(
+                "face_id_verification.metadata_extraction.urllib3.HTTPSConnectionPool"
+            ) as pool:
+                pool.return_value.urlopen.side_effect = urllib3.exceptions.NewConnectionError(
+                    None, "refused"
+                )
+                with pytest.raises(requests.ConnectionError):
+                    adapter.send(self._prepared("https://rebind.example/"), timeout=5)
+        kwargs = pool.call_args.kwargs
+        assert pool.call_args.args[0] == "93.184.216.34"
+        assert kwargs["server_hostname"] == "rebind.example", "SNI must be the hostname"
+        assert kwargs["assert_hostname"] == "rebind.example", "cert must be checked as the hostname"
+        assert kwargs["ssl_context"].verify_mode.name == "CERT_REQUIRED"
+        assert kwargs["ssl_context"].check_hostname is True
+
+    def test_tls_verification_is_never_disabled(self):
+        import urllib3
+
+        adapter = PinnedDestinationAdapter()
+        with patch(
+            "face_id_verification.metadata_extraction.socket.getaddrinfo",
+            return_value=[(2, 1, 6, "", ("93.184.216.34", 0, 0, 0))],
+        ):
+            with patch(
+                "face_id_verification.metadata_extraction.urllib3.HTTPSConnectionPool"
+            ) as pool:
+                pool.return_value.urlopen.side_effect = urllib3.exceptions.NewConnectionError(
+                    None, "refused"
+                )
+                with pytest.raises(requests.ConnectionError):
+                    adapter.send(self._prepared("https://rebind.example/"), timeout=5)
+        ctx = pool.call_args.kwargs["ssl_context"]
+        assert ctx.verify_mode.name == "CERT_REQUIRED"
+        assert ctx.check_hostname is True
+
+    def test_every_validated_address_is_tried_in_turn(self):
+        import urllib3
+
+        adapter = PinnedDestinationAdapter()
+        answers = [
+            (2, 1, 6, "", ("93.184.216.34", 0, 0, 0)),
+            (2, 1, 6, "", ("93.184.216.35", 0, 0, 0)),
+        ]
+        seen: list[str] = []
+
+        def failing_urlopen(method, target, **kwargs):
+            seen.append(kwargs["headers"]["Host"])
+            raise urllib3.exceptions.NewConnectionError(None, "refused")
+
+        with patch(
+            "face_id_verification.metadata_extraction.socket.getaddrinfo", return_value=answers
+        ):
+            with patch(
+                "face_id_verification.metadata_extraction.urllib3.HTTPConnectionPool"
+            ) as pool:
+                pool.return_value.urlopen.side_effect = failing_urlopen
+                with pytest.raises(requests.ConnectionError):
+                    adapter.send(self._prepared("http://multi.example/"), timeout=5)
+        assert len(seen) == 2, "both validated addresses should be attempted"
+        assert pool.call_count == 2
+
+    def test_environment_proxies_are_not_honoured(self):
+        """A proxy would resolve the name itself and silently void the pinning."""
+        session = pinned_session()
+        assert session.trust_env is False
+
+    def test_both_schemes_use_the_pinning_adapter(self):
+        session = pinned_session()
+        assert isinstance(session.get_adapter("http://x/"), PinnedDestinationAdapter)
+        assert isinstance(session.get_adapter("https://x/"), PinnedDestinationAdapter)
+
+
+class TestPinnedHostHeader:
+    def test_default_ports_are_omitted(self):
+        assert _host_header("example.com", 443, "https") == "example.com"
+        assert _host_header("example.com", 80, "http") == "example.com"
+
+    def test_non_default_ports_are_included(self):
+        assert _host_header("example.com", 8443, "https") == "example.com:8443"
+        assert _host_header("example.com", 8080, "http") == "example.com:8080"
+
+    def test_ipv6_literals_are_bracketed(self):
+        assert _host_header("2606:2800::1", 443, "https") == "[2606:2800::1]"
+        assert _host_header("2606:2800::1", 9000, "https") == "[2606:2800::1]:9000"
+
+
+class TestUrllib3TimeoutTranslation:
+    def test_a_float_becomes_connect_and_read(self):
+        t = _urllib3_timeout(7.5)
+        assert t.connect_timeout == 7.5
+        assert t.read_timeout == 7.5
+
+    def test_a_tuple_is_preserved(self):
+        t = _urllib3_timeout((3, 9))
+        assert t.connect_timeout == 3
+        assert t.read_timeout == 9
+
+    def test_none_keeps_the_library_default(self):
+        from urllib3.util import Timeout
+
+        t = _urllib3_timeout(None)
+        assert isinstance(t, Timeout)
+        # urllib3 keeps the sentinel on the connect side and resolves it to the socket
+        # default on the read side; either way no caller timeout is imposed.
+        assert t.connect_timeout is Timeout.DEFAULT_TIMEOUT
+        assert t.read_timeout is socket.getdefaulttimeout()
+
+    def test_the_default_context_is_reused(self):
+        from face_id_verification.metadata_extraction import _default_ssl_context
+
+        assert _default_ssl_context() is _default_ssl_context()
+
+
+class TestPinnedFetchAgainstALiveServer:
+    """A real socket to a real server, reached through a pinned address.
+
+    The loopback server stands in for a validated public address; the point under test is
+    that the request arrives naming the host while the socket went to the address.
+    """
+
+    @staticmethod
+    def _serve(handler_cls):
+        server = HTTPServer(("127.0.0.1", 0), handler_cls)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, server.server_address[1]
+
+    def test_the_request_arrives_with_the_host_name_and_the_right_path(self):
+        seen: dict[str, str] = {}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen["host"] = self.headers.get("Host", "")
+                seen["path"] = self.path
+                body = b"<html><head><title>pinned</title></head><body></body></html>"
+                self.send_response(200)
+                self.send_header("content-type", "text/html; charset=utf-8")
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server, port = self._serve(Handler)
+        try:
+            adapter = PinnedDestinationAdapter()
+            # The policy result is what gets dialed; a public name pointed at the local
+            # server, so the Host header has to come from the name to reach it at all.
+            with patch(
+                "face_id_verification.metadata_extraction._validated_addresses",
+                return_value=["127.0.0.1"],
+            ):
+                request = requests.Request(
+                    "GET", f"http://pinned.test:{port}/a/b?c=d"
+                ).prepare()
+                response = adapter.send(request, timeout=5, verify=True)
+                body = b"".join(response.iter_content(8192))
+                response.close()
+        finally:
+            server.shutdown()
+
+        assert response.status_code == 200
+        assert seen["host"] == f"pinned.test:{port}"
+        assert seen["path"] == "/a/b?c=d"
+        assert b"pinned" in body
+
+    def test_a_second_resolution_never_happens(self):
+        """One lookup for the check, and the socket uses its result. A second lookup is the bug."""
+        import urllib3
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("content-length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server, port = self._serve(Handler)
+        calls: list[str] = []
+
+        def counting_resolve(hostname):
+            calls.append(hostname)
+            return ["93.184.216.34"]
+
+        real_pool = urllib3.HTTPConnectionPool
+
+        def dial_the_test_server(address, pool_port, **kwargs):
+            # Record the pin the policy produced, but dial the loopback test server.
+            return real_pool("127.0.0.1", pool_port, **kwargs)
+
+        try:
+            adapter = PinnedDestinationAdapter()
+            # Patched on the module's own resolver rather than socket.getaddrinfo, because
+            # urllib3 resolves the dialed address through that same global and the real
+            # connection below needs it intact.
+            with patch(
+                "face_id_verification.metadata_extraction._resolve_host",
+                side_effect=counting_resolve,
+            ):
+                with patch(
+                    "face_id_verification.metadata_extraction.urllib3.HTTPConnectionPool",
+                    side_effect=dial_the_test_server,
+                ) as pool:
+                    request = requests.Request("GET", f"http://once.test:{port}/").prepare()
+                    response = adapter.send(request, timeout=5, verify=True)
+                    response.close()
+        finally:
+            server.shutdown()
+
+        assert response.status_code == 200
+        assert calls == ["once.test"], f"expected exactly one resolution, saw {calls}"
+        assert pool.call_args.args[0] == "93.184.216.34", "must dial the checked address"
+
+
+@pytest.mark.skipif(not _cryptography_available(), reason="cryptography is not installed")
+class TestPinnedTlsAgainstALiveServer:
+    """Certificate identity must survive pinning, or every HTTPS fetch would fail."""
+
+    def test_a_certificate_for_the_hostname_is_accepted_over_a_pinned_ip(self):
+        import datetime
+        import os
+        import ssl
+        import tempfile
+
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+
+        name = "pinned.test"
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(subject)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName(name)]), critical=False)
+            .sign(key, hashes.SHA256())
+        )
+        workdir = tempfile.mkdtemp()
+        cert_path = os.path.join(workdir, "cert.pem")
+        key_path = os.path.join(workdir, "key.pem")
+        with open(cert_path, "wb") as fh:
+            fh.write(cert.public_bytes(serialization.Encoding.PEM))
+        with open(key_path, "wb") as fh:
+            fh.write(
+                key.private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.TraditionalOpenSSL,
+                    serialization.NoEncryption(),
+                )
+            )
+
+        seen: dict[str, object] = {}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen["host"] = self.headers.get("Host", "")
+                body = b"<html><head><title>tls</title></head><body></body></html>"
+                self.send_response(200)
+                self.send_header("content-type", "text/html; charset=utf-8")
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+
+        def on_sni(sock, sni, _ctx):
+            seen["sni"] = sni
+            return None
+
+        ctx.sni_callback = on_sni
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            adapter = PinnedDestinationAdapter()
+            with patch(
+                "face_id_verification.metadata_extraction._validated_addresses",
+                return_value=["127.0.0.1"],
+            ):
+                request = requests.Request("GET", f"https://{name}:{port}/").prepare()
+                response = adapter.send(request, timeout=5, verify=cert_path)
+                body = b"".join(response.iter_content(8192))
+                response.close()
+        finally:
+            server.shutdown()
+
+        assert response.status_code == 200
+        assert seen["sni"] == name, "SNI must be the hostname, not the pinned IP"
+        assert seen["host"] == f"{name}:{port}"
+        assert b"tls" in body
+
+    def test_a_certificate_for_a_different_name_is_rejected(self):
+        """Proof that verification was not quietly turned off to make pinning work."""
+        import datetime
+        import os
+        import ssl
+        import tempfile
+
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+
+        served = "other.test"
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, served)])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(subject)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName(served)]), critical=False)
+            .sign(key, hashes.SHA256())
+        )
+        workdir = tempfile.mkdtemp()
+        cert_path = os.path.join(workdir, "cert.pem")
+        key_path = os.path.join(workdir, "key.pem")
+        with open(cert_path, "wb") as fh:
+            fh.write(cert.public_bytes(serialization.Encoding.PEM))
+        with open(key_path, "wb") as fh:
+            fh.write(
+                key.private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.TraditionalOpenSSL,
+                    serialization.NoEncryption(),
+                )
+            )
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("content-length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            adapter = PinnedDestinationAdapter()
+            with patch(
+                "face_id_verification.metadata_extraction._validated_addresses",
+                return_value=["127.0.0.1"],
+            ):
+                # Trusted CA, but the certificate names a different host than we asked for.
+                request = requests.Request(
+                    "GET", f"https://pinned.test:{port}/"
+                ).prepare()
+                with pytest.raises(requests.ConnectionError):
+                    adapter.send(request, timeout=5, verify=cert_path)
+        finally:
+            server.shutdown()

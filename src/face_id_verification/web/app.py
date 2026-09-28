@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
@@ -13,6 +14,7 @@ from typing import Any
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from web3 import Web3
 
 from face_id_verification.blockchain_recording import SEPOLIA_CHAIN_ID
@@ -40,6 +42,17 @@ DEFAULT_TIMEOUT = 30.0
 MAX_TIMEOUT = 300.0
 
 WRITE_TOKEN_ENV = "MUKHDAX_WEB_WRITE_TOKEN"
+
+# Each verification holds a loaded image, an embedding model call, and a paid search, so
+# unbounded parallelism would exhaust memory and the API budget. Cancellations release
+# the slot; timeouts below are enforced by the pipeline itself.
+MAX_CONCURRENT_VERIFICATIONS = 4
+VERIFY_SEMAPHORE_TIMEOUT_SECONDS = 5.0
+
+BUSY_DETAIL = (
+    "All verification workers are busy. This service runs a limited number of "
+    "verifications at once, so please wait a moment and try again."
+)
 
 RATE_LIMITED_DETAIL = (
     "Too many verification requests. This service performs paid reverse-image searches, "
@@ -233,6 +246,32 @@ def _build_rate_limiter() -> SlidingWindowRateLimiter:
         return SlidingWindowRateLimiter()
 
 
+async def run_verify(
+    pipeline: VerificationPipeline,
+    image_path: Path,
+    slots: asyncio.Semaphore,
+) -> VerificationReport:
+    """Run the blocking pipeline off the event loop, under a bounded concurrency limit.
+
+    The pipeline is synchronous and slow (model inference, a paid search, network I/O), so
+    running it inline would stall every other request on this process, including the static
+    assets the browser needs in order to show progress.
+    """
+    try:
+        await asyncio.wait_for(
+            slots.acquire(), timeout=VERIFY_SEMAPHORE_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        raise HTTPException(status_code=503, detail=BUSY_DETAIL) from None
+
+    try:
+        return await run_in_threadpool(pipeline.verify, image_path)
+    finally:
+        # Released on success, failure, and cancellation, so a slow or abandoned request
+        # cannot permanently consume a slot.
+        slots.release()
+
+
 def _trusted_proxies() -> frozenset[str]:
     configured = os.environ.get(TRUSTED_PROXY_HOSTS_ENV, "")
     return frozenset(part.strip() for part in configured.split(",") if part.strip())
@@ -254,6 +293,9 @@ def create_app(
     )
     app.add_middleware(TrustedHostGuard)
     limiter = rate_limiter if rate_limiter is not None else _build_rate_limiter()
+    # Per application rather than per module: each process gets its own budget, and tests
+    # that build separate apps cannot starve or leak each other's capacity.
+    verify_slots = asyncio.Semaphore(MAX_CONCURRENT_VERIFICATIONS)
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
@@ -339,7 +381,7 @@ def create_app(
         tmp_path: Path | None = None
         try:
             tmp_path = _save_upload(content)
-            report = pipeline.verify(tmp_path)
+            report = await run_verify(pipeline, tmp_path, verify_slots)
         except HTTPException:
             raise
         except Exception:

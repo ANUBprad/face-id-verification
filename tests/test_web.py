@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -16,7 +20,7 @@ from face_id_verification.blockchain_recording import (
 )
 from face_id_verification.face_detection import DetectedFace
 from face_id_verification.metadata_extraction import PostMetadata
-from face_id_verification.pipeline import VerificationPipeline
+from face_id_verification.pipeline import VerificationPipeline, VerificationReport
 from face_id_verification.reverse_search import (
     MatchingPage,
     ReverseSearchResult,
@@ -24,7 +28,11 @@ from face_id_verification.reverse_search import (
     WebImage,
 )
 from face_id_verification.verification_hash import SCHEMA_ID
-from face_id_verification.web.app import create_app
+from face_id_verification.web.app import (
+    MAX_CONCURRENT_VERIFICATIONS,
+    create_app,
+    run_verify,
+)
 from face_id_verification.web.ratelimit import SlidingWindowRateLimiter
 
 TINY_PNG = bytes.fromhex(
@@ -84,6 +92,10 @@ def _blockchain_pipeline(**kwargs):
     pipeline._blockchain_enabled = True
     pipeline._contract_address = kwargs["contract_address"]
     return pipeline
+
+
+def _success_report() -> VerificationReport:
+    return _success_pipeline().verify(Path("unused"))
 
 
 WRITE_TOKEN = "test-write-token-2f9c4b7e"
@@ -684,6 +696,237 @@ class TestVerifyRateLimit:
         assert self._post(client).status_code == 200
         assert self._post(client).status_code == 200
         assert self._post(client).status_code == 429
+
+
+class TestEventLoopIsolation:
+    """The slow synchronous pipeline must not block the event loop."""
+
+    def _app(self, verify):
+        def builder(**kwargs):
+            pipeline = _success_pipeline()
+            pipeline.verify = verify
+            return pipeline
+
+        return create_app(
+            pipeline_builder=builder,
+            rate_limiter=SlidingWindowRateLimiter(limit=1000, window_seconds=60.0),
+        )
+
+    def _post(self, client):
+        return client.post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+
+    def test_pipeline_runs_on_a_worker_thread_not_the_event_loop(self):
+        threads: list[str] = []
+
+        def verify(path):
+            threads.append(threading.current_thread().name)
+            return _success_report()
+
+        client = _client(self._app(verify))
+        assert self._post(client).status_code == 200
+        assert len(threads) == 1
+        assert threads[0] != threading.current_thread().name
+
+    def test_a_slow_verification_does_not_block_other_requests(self):
+        """A long pipeline must not stall a concurrent caller, e.g. one loading assets."""
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_verify(path):
+            started.set()
+            release.wait(timeout=20)
+            return _success_report()
+
+        client = _client(self._app(slow_verify))
+
+        with client:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                blocked = pool.submit(self._post, client)
+                assert started.wait(timeout=10)
+
+                # The index page must be served while the slow verification is still
+                # occupying its worker, which is impossible if the pipeline ran inline.
+                served = pool.submit(client.get, "/")
+                assert served.result(timeout=10).status_code == 200
+
+                release.set()
+                assert blocked.result(timeout=20).status_code == 200
+
+    def test_a_blocking_pipeline_keeps_its_exception_semantics(self):
+        def verify(path):
+            raise RuntimeError("boom")
+
+        client = _client(self._app(verify))
+        response = self._post(client)
+        assert response.status_code == 500
+        assert "unexpected server error" in response.json()["detail"]
+
+
+class TestVerificationConcurrencyLimit:
+    """A burst of callers must not translate into unbounded parallel work."""
+
+    def _app(self, verify, limit=1000):
+        def builder(**kwargs):
+            pipeline = _success_pipeline()
+            pipeline.verify = verify
+            return pipeline
+
+        return create_app(
+            pipeline_builder=builder,
+            rate_limiter=SlidingWindowRateLimiter(limit=limit, window_seconds=60.0),
+        )
+
+    def _post(self, client):
+        return client.post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+
+    def test_concurrency_never_exceeds_the_configured_cap(self):
+        peak = 0
+        current = 0
+        counter_lock = threading.Lock()
+        at_cap = threading.Barrier(
+            MAX_CONCURRENT_VERIFICATIONS + 1, timeout=15
+        )
+
+        def verify(path):
+            nonlocal peak, current
+            with counter_lock:
+                current += 1
+                peak = max(peak, current)
+            try:
+                # Every permitted slot must be occupied at once, or the test fails
+                # rather than passing because the work was accidentally serialized.
+                at_cap.wait()
+            except threading.BrokenBarrierError:
+                pass
+            finally:
+                with counter_lock:
+                    current -= 1
+            return _success_report()
+
+        client = _client(self._app(verify))
+        with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_VERIFICATIONS + 4) as pool:
+            results = [pool.submit(self._post, client) for _ in range(MAX_CONCURRENT_VERIFICATIONS)]
+            responses = [f.result(timeout=30) for f in results]
+
+        assert [r.status_code for r in responses] == [200] * MAX_CONCURRENT_VERIFICATIONS
+        assert peak <= MAX_CONCURRENT_VERIFICATIONS, f"ran {peak} verifications at once"
+
+    def test_slots_are_released_after_a_request(self, monkeypatch):
+        monkeypatch.setattr(
+            "face_id_verification.web.app.VERIFY_SEMAPHORE_TIMEOUT_SECONDS", 0.5
+        )
+        client = _client(self._app(verify=MagicMock(side_effect=RuntimeError("boom"))))
+        for _ in range(10):
+            assert self._post(client).status_code == 500
+
+    def test_slots_are_released_after_a_client_disconnect(self, monkeypatch):
+        """An abandoned request must not hold a slot forever."""
+        monkeypatch.setattr(
+            "face_id_verification.web.app.VERIFY_SEMAPHORE_TIMEOUT_SECONDS", 0.5
+        )
+
+        async def scenario():
+            slots = asyncio.Semaphore(1)
+            entered = threading.Event()
+            never = threading.Event()
+
+            def verify(path):
+                entered.set()
+                never.wait(timeout=10)
+                return _success_report()
+
+            pipeline = _success_pipeline()
+            pipeline.verify = verify
+
+            abandoned = asyncio.create_task(run_verify(pipeline, Path("x"), slots))
+            for _ in range(100):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(0.05)
+            abandoned.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await abandoned
+            # Cancellation must free the slot, not strand it.
+            assert not slots.locked()
+
+            # The freed slot is usable: a new request must not wait for the timeout.
+            follow_up = asyncio.create_task(run_verify(pipeline, Path("x"), slots))
+            await asyncio.sleep(0.2)
+            never.set()
+            # It must complete on its own merits, not be cancelled at loop shutdown.
+            return await asyncio.wait_for(follow_up, timeout=10)
+
+        assert isinstance(asyncio.run(scenario()), VerificationReport)
+
+    def test_excess_concurrent_requests_get_503_not_a_hang(self, monkeypatch):
+        monkeypatch.setattr(
+            "face_id_verification.web.app.VERIFY_SEMAPHORE_TIMEOUT_SECONDS", 0.3
+        )
+        release = threading.Event()
+        occupied = threading.Semaphore(0)
+
+        def verify(path):
+            occupied.release()
+            release.wait(timeout=30)
+            return _success_report()
+
+        with _client(self._app(verify)) as client:
+            with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_VERIFICATIONS) as pool:
+                running = [
+                    pool.submit(self._post, client)
+                    for _ in range(MAX_CONCURRENT_VERIFICATIONS)
+                ]
+                for _ in range(MAX_CONCURRENT_VERIFICATIONS):
+                    assert occupied.acquire(timeout=15)
+                response = self._post(client)
+            release.set()
+            for future in running:
+                future.result(timeout=30)
+
+        assert response.status_code == 503
+        assert "busy" in response.json()["detail"].lower()
+        _assert_no_temp_uploads()
+
+    def test_rejected_busy_request_does_not_run_the_pipeline(self, monkeypatch):
+        monkeypatch.setattr(
+            "face_id_verification.web.app.VERIFY_SEMAPHORE_TIMEOUT_SECONDS", 0.3
+        )
+        release = threading.Event()
+        occupied = threading.Semaphore(0)
+        ran = []
+
+        def slow_verify(path):
+            occupied.release()
+            release.wait(timeout=30)
+            return _success_report()
+
+        # The slot-holding work is slow; anything else counts as a leaked execution.
+        def counted_verify(path):
+            ran.append(1)
+            return slow_verify(path)
+
+        client = _client(self._app(counted_verify))
+        with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_VERIFICATIONS) as pool:
+            running = [
+                pool.submit(self._post, client)
+                for _ in range(MAX_CONCURRENT_VERIFICATIONS)
+            ]
+            for _ in range(MAX_CONCURRENT_VERIFICATIONS):
+                assert occupied.acquire(timeout=10)
+            before = len(ran)
+            response = self._post(client)
+            assert len(ran) == before
+        release.set()
+        for future in running:
+            future.result(timeout=30)
+
+        assert response.status_code == 503
 
 
 class TestTrustedHostHeader:

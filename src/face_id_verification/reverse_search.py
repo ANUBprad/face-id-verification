@@ -27,6 +27,14 @@ class ReverseSearchError(Exception):
     """Raised when reverse image search fails."""
 
 
+class ReverseSearchConfigurationError(ReverseSearchError):
+    """The provider is not usable because it has not been configured."""
+
+
+class ReverseSearchUnavailableError(ReverseSearchError):
+    """The provider is configured but refused the request on account grounds."""
+
+
 @dataclass(frozen=True)
 class WebEntity:
     description: str
@@ -234,7 +242,7 @@ class SerpApiLensSearcher:
     def _api_key(self) -> str:
         key = os.environ.get("SERPAPI_API_KEY", "")
         if not key:
-            raise ReverseSearchError(
+            raise ReverseSearchConfigurationError(
                 "SERPAPI_API_KEY is required (set the SERPAPI_API_KEY environment variable)."
             )
         return key
@@ -257,7 +265,9 @@ class SerpApiLensSearcher:
             raise ReverseSearchError(f"SerpApi image upload failed: {e}") from e
 
         if response.status_code in (401, 403):
-            raise ReverseSearchError("SerpApi rejected the API key (invalid or unauthorized)")
+            raise ReverseSearchUnavailableError(
+                "SerpApi rejected the API key (invalid or unauthorized)"
+            )
         if response.status_code == 429:
             raise ReverseSearchError("SerpApi image upload rate limit exceeded (HTTP 429)")
         if response.status_code >= 400:
@@ -290,7 +300,9 @@ class SerpApiLensSearcher:
             raise ReverseSearchError(f"SerpApi Google Lens search failed: {e}") from e
 
         if response.status_code in (401, 403):
-            raise ReverseSearchError("SerpApi rejected the API key (invalid or unauthorized)")
+            raise ReverseSearchUnavailableError(
+                "SerpApi rejected the API key (invalid or unauthorized)"
+            )
         if response.status_code == 429:
             raise ReverseSearchError("SerpApi Google Lens search rate limit exceeded (HTTP 429)")
         if response.status_code >= 400:
@@ -349,7 +361,7 @@ class GoogleVisionSearcher:
         try:
             from google.cloud import vision
         except ImportError as e:
-            raise ReverseSearchError(
+            raise ReverseSearchConfigurationError(
                 "Google Cloud Vision support is not installed. Install the optional "
                 "extra with: pip install 'face-id-verification[gcv]'"
             ) from e
@@ -359,7 +371,7 @@ class GoogleVisionSearcher:
             logger.info("Google Cloud Vision client initialized")
         except Exception as e:
             self._client = None
-            raise ReverseSearchError(
+            raise ReverseSearchConfigurationError(
                 "Failed to initialize Google Cloud Vision client. "
                 "Ensure GOOGLE_APPLICATION_CREDENTIALS is set or "
                 "Application Default Credentials are configured."

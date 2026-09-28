@@ -66,6 +66,10 @@ class BlockchainNetworkError(BlockchainError):
     """Raised when the RPC endpoint is not the network MukhdaX requires."""
 
 
+class BlockchainTransactionReverted(BlockchainError):
+    """Raised when a submitted transaction was mined but reverted."""
+
+
 def describe_network(chain_id: int) -> str:
     """Human-readable network name so a wrong RPC endpoint is immediately obvious."""
     if chain_id == 1:
@@ -317,7 +321,7 @@ def record_verification(contract_address: str, verification_hash: str) -> Blockc
     explorer_url = f"{SEPOLIA_EXPLORER_BASE}/{canonical_tx_hash}" if confirmed else None
 
     if not confirmed:
-        raise BlockchainError(
+        raise BlockchainTransactionReverted(
             f"Transaction reverted on Sepolia: tx {canonical_tx_hash}"
         )
 

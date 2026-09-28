@@ -18,6 +18,15 @@ EMBEDDING_DIMENSION = 512
 
 
 class FaceDetectionError(Exception):
+    """A face could not be produced. The subtype says whether input or model was at fault."""
+
+
+class ImageLoadError(FaceDetectionError):
+    """The image itself could not be read: missing, not a file, or undecodable."""
+
+
+class FaceModelError(FaceDetectionError):
+    """The detection model could not be initialized or failed while running."""
     """Raised when face detection or embedding generation fails."""
 
 
@@ -31,9 +40,9 @@ class DetectedFace:
 def load_image(image_path: str | Path) -> NDArray[np.uint8]:
     path = Path(image_path)
     if not path.exists():
-        raise FaceDetectionError(f"Image path does not exist: {path}")
+        raise ImageLoadError(f"Image path does not exist: {path}")
     if not path.is_file():
-        raise FaceDetectionError(f"Image path is not a file: {path}")
+        raise ImageLoadError(f"Image path is not a file: {path}")
 
     # Refuse an oversized image from its header, before imread allocates a buffer whose
     # size is chosen entirely by the untrusted dimensions inside the file.
@@ -41,7 +50,7 @@ def load_image(image_path: str | Path) -> NDArray[np.uint8]:
 
     img = cv2.imread(str(path))
     if img is None:
-        raise FaceDetectionError(f"Failed to read image (unsupported format or corrupted): {path}")
+        raise ImageLoadError(f"Failed to read image (unsupported format or corrupted): {path}")
 
     # The decoder is a separate trust boundary from the header parser that just ran, so
     # the array it actually produced is checked as well.
@@ -69,7 +78,7 @@ class FaceAnalyzer:
             logger.info("InsightFace model '%s' initialized", self._model_name)
         except Exception as e:
             self._app = None
-            raise FaceDetectionError(
+            raise FaceModelError(
                 f"Failed to initialize InsightFace model '{self._model_name}'"
             ) from e
 
@@ -80,13 +89,13 @@ class FaceAnalyzer:
         try:
             faces = self._app.get(img)
         except Exception as e:
-            raise FaceDetectionError("InsightFace face detection failed") from e
+            raise FaceModelError("InsightFace face detection failed") from e
 
         results: list[DetectedFace] = []
         for face in faces:
             emb = face.embedding
             if emb is None or emb.shape[0] != EMBEDDING_DIMENSION:
-                raise FaceDetectionError(
+                raise FaceModelError(
                     f"Unexpected embedding dimension: "
                     f"{emb.shape[0] if emb is not None else 'None'} "
                     f"(expected {EMBEDDING_DIMENSION})"

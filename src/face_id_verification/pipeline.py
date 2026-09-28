@@ -8,15 +8,45 @@ from functools import partial
 from pathlib import Path
 
 from face_id_verification.blockchain_recording import (
+    BlockchainConfigurationError,
     BlockchainError,
+    BlockchainNetworkError,
     BlockchainRecord,
+    BlockchainTransactionReverted,
     VerificationReadBack,
     read_back_verification,
     record_verification,
 )
+from face_id_verification.errors import (
+    CODE_BLOCKCHAIN_CONFIGURATION,
+    CODE_BLOCKCHAIN_NETWORK,
+    CODE_BLOCKCHAIN_READBACK_FAILED,
+    CODE_BLOCKCHAIN_REVERTED,
+    CODE_BLOCKCHAIN_UNCONFIRMED,
+    CODE_BLOCKCHAIN_WRITE_FAILED,
+    CODE_IMAGE_REJECTED,
+    CODE_INTERNAL_ERROR,
+    CODE_INVALID_IMAGE,
+    CODE_METADATA_FAILED,
+    CODE_MODEL_FAILURE,
+    CODE_MULTIPLE_FACES,
+    CODE_NO_FACE,
+    CODE_SEARCH_CONFIGURATION,
+    CODE_SEARCH_FAILED,
+    CODE_SEARCH_UNAVAILABLE,
+    STAGE_BLOCKCHAIN,
+    STAGE_FACE_DETECTION,
+    STAGE_INPUT,
+    STAGE_INTERNAL,
+    STAGE_METADATA,
+    STAGE_REVERSE_SEARCH,
+    VerificationError,
+)
 from face_id_verification.face_detection import (
     FaceAnalyzer,
     FaceDetectionError,
+    FaceModelError,
+    ImageLoadError,
 )
 from face_id_verification.image_limits import ImageResourceError
 from face_id_verification.metadata_extraction import (
@@ -26,8 +56,10 @@ from face_id_verification.metadata_extraction import (
 )
 from face_id_verification.reverse_search import (
     ReverseImageSearcher,
+    ReverseSearchConfigurationError,
     ReverseSearchError,
     ReverseSearchResult,
+    ReverseSearchUnavailableError,
 )
 from face_id_verification.verification_hash import (
     SCHEMA_ID,
@@ -77,6 +109,7 @@ class VerificationReport:
     blockchain_readback: VerificationReadBack | None = None
     blockchain_readback_error: str | None = None
     verification_schema: str | None = None
+    error_details: list[VerificationError] = field(default_factory=list)
 
 
 def image_content_hash(image_path: str | Path) -> str:
@@ -84,26 +117,62 @@ def image_content_hash(image_path: str | Path) -> str:
     try:
         data = path.read_bytes()
     except OSError as e:
-        raise FaceDetectionError(f"Failed to read image bytes: {path}") from e
+        raise ImageLoadError(f"Failed to read image bytes: {path}") from e
     return "0x" + hashlib.sha256(data).hexdigest()
 
 
-def _duplicate_readback_error(
+def _is_unconfirmed_duplicate(
     record: BlockchainRecord | None,
     readback: VerificationReadBack | None,
-) -> str | None:
+    readback_error: str | None,
+) -> bool:
     """A pre-existing record only counts once read-back proves it is really on-chain.
 
     ``duplicate=True`` is not a confirmation: it only reports that a matching record was
     already present, so the claim still has to be corroborated by an independent read.
     """
-    if record is None or not record.duplicate:
-        return None
-    if readback is not None and readback.verified:
-        return None
-    return (
-        "An on-chain record already exists for this verification hash, but reading it "
-        "back did not confirm a stored record, so the anchor is unconfirmed."
+    if readback_error or record is None or not record.duplicate:
+        return False
+    return not (readback is not None and readback.verified)
+
+
+def _duplicate_detail() -> VerificationError:
+    return VerificationError(
+        stage=STAGE_BLOCKCHAIN,
+        code=CODE_BLOCKCHAIN_UNCONFIRMED,
+        message=(
+            "An on-chain record already exists for this verification hash, but reading it "
+            "back did not confirm a stored record, so the anchor is unconfirmed."
+        ),
+    )
+
+
+def _stopped_report(
+    *,
+    image_str: str,
+    status: str,
+    stage: str,
+    code: str,
+    message: str,
+) -> VerificationReport:
+    """A report for a pipeline that stopped before the next stage could start.
+
+    Every later stage is absent by construction, which is what the caller needs to see:
+    nothing was attempted after the failure and nothing was paid for.
+    """
+    return VerificationReport(
+        status=status,
+        input_image=image_str,
+        faces=[],
+        reverse_search=None,
+        reverse_search_error=None,
+        metadata=[],
+        metadata_errors=[],
+        blockchain=None,
+        blockchain_error=None,
+        verification_hash=None,
+        errors=[message],
+        error_details=[VerificationError(stage=stage, code=code, message=message)],
     )
 
 
@@ -129,77 +198,89 @@ class VerificationPipeline:
     def verify(self, image_path: str | Path) -> VerificationReport:
         image_str = str(image_path)
         errors: list[str] = []
+        error_details: list[VerificationError] = []
 
         try:
-            faces, face_error = self._detect_faces(image_path)
+            faces = self._detect_faces(image_path)
         except ImageResourceError as e:
             # The input was refused by the image resource policy. That is a verdict about
             # the input, not a fault of the detection model, the search provider, or the
             # chain, so it gets its own status instead of a failure the user cannot act on.
-            return self._rejected_report(image_str, str(e))
-        if face_error:
-            return VerificationReport(
+            return _stopped_report(
+                image_str=image_str,
+                status="image_rejected",
+                stage=STAGE_INPUT,
+                code=CODE_IMAGE_REJECTED,
+                message=str(e),
+            )
+        except ImageLoadError as e:
+            return _stopped_report(
+                image_str=image_str,
                 status="face_detection_failed",
-                input_image=image_str,
-                faces=[],
-                reverse_search=None,
-                reverse_search_error=None,
-                metadata=[],
-                metadata_errors=[],
-                blockchain=None,
-                blockchain_error=None,
-                verification_hash=None,
-                errors=[face_error],
+                stage=STAGE_INPUT,
+                code=CODE_INVALID_IMAGE,
+                message=str(e),
+            )
+        except FaceModelError as e:
+            return _stopped_report(
+                image_str=image_str,
+                status="face_detection_failed",
+                stage=STAGE_FACE_DETECTION,
+                code=CODE_MODEL_FAILURE,
+                message=str(e),
+            )
+        except FaceDetectionError as e:
+            return _stopped_report(
+                image_str=image_str,
+                status="face_detection_failed",
+                stage=STAGE_FACE_DETECTION,
+                code=CODE_MODEL_FAILURE,
+                message=str(e),
+            )
+        except Exception as e:
+            return _stopped_report(
+                image_str=image_str,
+                status="face_detection_failed",
+                stage=STAGE_INTERNAL,
+                code=CODE_INTERNAL_ERROR,
+                message=f"Unexpected face detection error: {e}",
             )
 
         if not faces:
-            return VerificationReport(
+            message = "No face detected in the provided image."
+            return _stopped_report(
+                image_str=image_str,
                 status="no_face_detected",
-                input_image=image_str,
-                faces=[],
-                reverse_search=None,
-                reverse_search_error=None,
-                metadata=[],
-                metadata_errors=[],
-                blockchain=None,
-                blockchain_error=None,
-                verification_hash=None,
-                errors=["No face detected in the provided image."],
+                stage=STAGE_FACE_DETECTION,
+                code=CODE_NO_FACE,
+                message=message,
             )
 
         if len(faces) > 1:
-            return VerificationReport(
+            message = (
+                f"Multiple faces detected (found {len(faces)}); "
+                "exactly one face is required"
+            )
+            return _stopped_report(
+                image_str=image_str,
                 status="multiple_faces",
-                input_image=image_str,
-                faces=[],
-                reverse_search=None,
-                reverse_search_error=None,
-                metadata=[],
-                metadata_errors=[],
-                blockchain=None,
-                blockchain_error=None,
-                verification_hash=None,
-                errors=[f"Multiple faces detected (found {len(faces)}); exactly one face is required"],
+                stage=STAGE_FACE_DETECTION,
+                code=CODE_MULTIPLE_FACES,
+                message=message,
             )
 
         try:
             content_hash = image_content_hash(image_path)
-        except FaceDetectionError as e:
-            return VerificationReport(
+        except ImageLoadError as e:
+            return _stopped_report(
+                image_str=image_str,
                 status="face_detection_failed",
-                input_image=image_str,
-                faces=[],
-                reverse_search=None,
-                reverse_search_error=None,
-                metadata=[],
-                metadata_errors=[],
-                blockchain=None,
-                blockchain_error=None,
-                verification_hash=None,
-                errors=[str(e)],
+                stage=STAGE_INPUT,
+                code=CODE_INVALID_IMAGE,
+                message=str(e),
             )
 
-        search_result, search_error = self._reverse_search(image_path)
+        search_result, search_error, search_error_detail = self._reverse_search(image_path)
 
         metadata_results, metadata_errors = self._extract_metadata(search_result)
 
@@ -208,31 +289,51 @@ class VerificationPipeline:
         )
         verification_hash = compute_verification_hash(verification_payload)
 
-        blockchain_record, blockchain_error = self._record_blockchain(verification_hash)
+        blockchain_record, blockchain_error, blockchain_error_detail = (
+            self._record_blockchain(verification_hash)
+        )
 
-        readback, readback_error = self._read_back_blockchain(
+        readback, readback_error, readback_error_detail = self._read_back_blockchain(
             verification_hash, blockchain_record
         )
 
         # Already reported by readback_error, so a duplicate is not blamed twice.
-        duplicate_error = (
-            None
-            if readback_error
-            else _duplicate_readback_error(blockchain_record, readback)
+        duplicate_detail = (
+            _duplicate_detail()
+            if _is_unconfirmed_duplicate(blockchain_record, readback, readback_error)
+            else None
         )
+        duplicate_error = duplicate_detail.message if duplicate_detail else None
 
-        if blockchain_error:
-            errors.append(blockchain_error)
-        if duplicate_error:
-            errors.append(duplicate_error)
-        if readback_error:
-            errors.append(readback_error)
+        for error, detail in (
+            (blockchain_error, blockchain_error_detail),
+            (duplicate_error, duplicate_detail),
+            (readback_error, readback_error_detail),
+        ):
+            if error is not None:
+                errors.append(error)
+            if detail is not None:
+                error_details.append(detail)
+
+        if search_error_detail is not None:
+            error_details.append(search_error_detail)
 
         status = self._determine_status(
             faces, search_result, search_error, metadata_results,
             blockchain_error=blockchain_error,
             blockchain_readback_error=readback_error or duplicate_error,
         )
+
+        # A total metadata failure is the one report-level failure that never reached
+        # ``errors`` before, so a report could say metadata_failed with nothing to read.
+        if status == "metadata_failed":
+            message = "Metadata extraction failed for all matching pages."
+            errors.append(message)
+            error_details.append(
+                VerificationError(
+                    stage=STAGE_METADATA, code=CODE_METADATA_FAILED, message=message
+                )
+            )
 
         return VerificationReport(
             status=status,
@@ -249,57 +350,47 @@ class VerificationPipeline:
             blockchain_readback=readback,
             blockchain_readback_error=readback_error,
             verification_schema=SCHEMA_ID,
+            error_details=error_details,
         )
 
-    def _detect_faces(self, image_path: str | Path) -> tuple[list[FaceResult], str | None]:
-        try:
-            detected = self._face_analyzer.detect_faces(image_path)
-            results = []
-            for face in detected:
-                emb_hash = "0x" + hashlib.sha256(face.embedding.tobytes()).hexdigest()
-                results.append(FaceResult(
-                    bounding_box=face.bounding_box,
-                    detection_confidence=face.detection_confidence,
-                    embedding_hash=emb_hash,
-                ))
-            return results, None
-        except ImageResourceError:
-            # Not a detection failure: the caller reports it as a rejected input.
-            raise
-        except FaceDetectionError as e:
-            return [], str(e)
-        except Exception as e:
-            return [], f"Unexpected face detection error: {e}"
+    def _detect_faces(self, image_path: str | Path) -> list[FaceResult]:
+        detected = self._face_analyzer.detect_faces(image_path)
+        results = []
+        for face in detected:
+            emb_hash = "0x" + hashlib.sha256(face.embedding.tobytes()).hexdigest()
+            results.append(FaceResult(
+                bounding_box=face.bounding_box,
+                detection_confidence=face.detection_confidence,
+                embedding_hash=emb_hash,
+            ))
+        return results
 
-    @staticmethod
-    def _rejected_report(image_str: str, message: str) -> VerificationReport:
-        """A report for an image refused by the resource policy, before any work was done.
-
-        Reverse search, metadata, and the chain are all absent by construction, which is
-        what the caller needs to see: nothing was attempted and nothing was paid for.
-        """
-        return VerificationReport(
-            status="image_rejected",
-            input_image=image_str,
-            faces=[],
-            reverse_search=None,
-            reverse_search_error=None,
-            metadata=[],
-            metadata_errors=[],
-            blockchain=None,
-            blockchain_error=None,
-            verification_hash=None,
-            errors=[message],
-        )
-
-    def _reverse_search(self, image_path: str | Path) -> tuple[ReverseSearchResult | None, str | None]:
+    def _reverse_search(
+        self, image_path: str | Path
+    ) -> tuple[ReverseSearchResult | None, str | None, VerificationError | None]:
         try:
             result = self._reverse_searcher.search(image_path)
-            return result, None
+            return result, None, None
+        except ReverseSearchConfigurationError as e:
+            message = str(e)
+            return None, message, VerificationError(
+                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_CONFIGURATION, message=message
+            )
+        except ReverseSearchUnavailableError as e:
+            message = str(e)
+            return None, message, VerificationError(
+                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_UNAVAILABLE, message=message
+            )
         except ReverseSearchError as e:
-            return None, str(e)
+            message = str(e)
+            return None, message, VerificationError(
+                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_FAILED, message=message
+            )
         except Exception as e:
-            return None, f"Unexpected reverse search error: {e}"
+            message = f"Unexpected reverse search error: {e}"
+            return None, message, VerificationError(
+                stage=STAGE_INTERNAL, code=CODE_INTERNAL_ERROR, message=message
+            )
 
     def _extract_metadata(
         self, search_result: ReverseSearchResult | None
@@ -397,12 +488,17 @@ class VerificationPipeline:
 
     def _record_blockchain(
         self, verification_hash: str
-    ) -> tuple[BlockchainRecord | None, str | None]:
+    ) -> tuple[BlockchainRecord | None, str | None, VerificationError | None]:
         if not self._blockchain_enabled:
-            return None, None
+            return None, None, None
 
         if not self._contract_address:
-            return None, "Blockchain enabled but contract_address not configured"
+            message = "Blockchain enabled but contract_address not configured"
+            return None, message, VerificationError(
+                stage=STAGE_BLOCKCHAIN,
+                code=CODE_BLOCKCHAIN_CONFIGURATION,
+                message=message,
+            )
 
         try:
             record = record_verification(self._contract_address, verification_hash)
@@ -410,30 +506,52 @@ class VerificationPipeline:
             # was reverted. Treating it as a failure would invent a revert that never
             # happened and discard a record that genuinely exists on-chain.
             if not record.confirmed and not record.duplicate:
-                raise BlockchainError(
+                raise BlockchainTransactionReverted(
                     f"Transaction reverted on Sepolia: tx {record.transaction_hash}"
                 )
-            return record, None
+            return record, None, None
+        except BlockchainConfigurationError as e:
+            return None, str(e), self._blockchain_detail(
+                CODE_BLOCKCHAIN_CONFIGURATION, str(e)
+            )
+        except BlockchainNetworkError as e:
+            return None, str(e), self._blockchain_detail(CODE_BLOCKCHAIN_NETWORK, str(e))
+        except BlockchainTransactionReverted as e:
+            return None, str(e), self._blockchain_detail(CODE_BLOCKCHAIN_REVERTED, str(e))
         except BlockchainError as e:
-            return None, str(e)
+            return None, str(e), self._blockchain_detail(
+                CODE_BLOCKCHAIN_WRITE_FAILED, str(e)
+            )
         except Exception as e:
-            return None, f"Unexpected blockchain error: {e}"
+            message = f"Unexpected blockchain error: {e}"
+            return None, message, VerificationError(
+                stage=STAGE_INTERNAL, code=CODE_INTERNAL_ERROR, message=message
+            )
 
     def _read_back_blockchain(
         self, verification_hash: str, record: BlockchainRecord | None
-    ) -> tuple[VerificationReadBack | None, str | None]:
+    ) -> tuple[VerificationReadBack | None, str | None, VerificationError | None]:
         if not self._blockchain_enabled or not self._contract_address:
-            return None, None
+            return None, None, None
 
         if record is None or not (record.confirmed or record.duplicate):
-            return None, None
+            return None, None, None
 
         try:
-            return read_back_verification(self._contract_address, verification_hash), None
+            return read_back_verification(self._contract_address, verification_hash), None, None
         except BlockchainError as e:
-            return None, str(e)
+            return None, str(e), self._blockchain_detail(
+                CODE_BLOCKCHAIN_READBACK_FAILED, str(e)
+            )
         except Exception as e:
-            return None, f"Unexpected on-chain read-back error: {e}"
+            message = f"Unexpected on-chain read-back error: {e}"
+            return None, message, VerificationError(
+                stage=STAGE_INTERNAL, code=CODE_INTERNAL_ERROR, message=message
+            )
+
+    @staticmethod
+    def _blockchain_detail(code: str, message: str) -> VerificationError:
+        return VerificationError(stage=STAGE_BLOCKCHAIN, code=code, message=message)
 
     def _determine_status(
         self,

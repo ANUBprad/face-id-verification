@@ -9,6 +9,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from face_id_verification.image_limits import check_image_file, enforce_decoded_shape
+
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "buffalo_l"
@@ -33,9 +35,17 @@ def load_image(image_path: str | Path) -> NDArray[np.uint8]:
     if not path.is_file():
         raise FaceDetectionError(f"Image path is not a file: {path}")
 
+    # Refuse an oversized image from its header, before imread allocates a buffer whose
+    # size is chosen entirely by the untrusted dimensions inside the file.
+    check_image_file(path)
+
     img = cv2.imread(str(path))
     if img is None:
         raise FaceDetectionError(f"Failed to read image (unsupported format or corrupted): {path}")
+
+    # The decoder is a separate trust boundary from the header parser that just ran, so
+    # the array it actually produced is checked as well.
+    enforce_decoded_shape(img)
 
     return img
 

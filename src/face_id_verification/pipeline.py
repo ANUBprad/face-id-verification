@@ -18,6 +18,7 @@ from face_id_verification.face_detection import (
     FaceAnalyzer,
     FaceDetectionError,
 )
+from face_id_verification.image_limits import ImageResourceError
 from face_id_verification.metadata_extraction import (
     MetadataExtractionError,
     PostMetadata,
@@ -129,7 +130,13 @@ class VerificationPipeline:
         image_str = str(image_path)
         errors: list[str] = []
 
-        faces, face_error = self._detect_faces(image_path)
+        try:
+            faces, face_error = self._detect_faces(image_path)
+        except ImageResourceError as e:
+            # The input was refused by the image resource policy. That is a verdict about
+            # the input, not a fault of the detection model, the search provider, or the
+            # chain, so it gets its own status instead of a failure the user cannot act on.
+            return self._rejected_report(image_str, str(e))
         if face_error:
             return VerificationReport(
                 status="face_detection_failed",
@@ -256,10 +263,34 @@ class VerificationPipeline:
                     embedding_hash=emb_hash,
                 ))
             return results, None
+        except ImageResourceError:
+            # Not a detection failure: the caller reports it as a rejected input.
+            raise
         except FaceDetectionError as e:
             return [], str(e)
         except Exception as e:
             return [], f"Unexpected face detection error: {e}"
+
+    @staticmethod
+    def _rejected_report(image_str: str, message: str) -> VerificationReport:
+        """A report for an image refused by the resource policy, before any work was done.
+
+        Reverse search, metadata, and the chain are all absent by construction, which is
+        what the caller needs to see: nothing was attempted and nothing was paid for.
+        """
+        return VerificationReport(
+            status="image_rejected",
+            input_image=image_str,
+            faces=[],
+            reverse_search=None,
+            reverse_search_error=None,
+            metadata=[],
+            metadata_errors=[],
+            blockchain=None,
+            blockchain_error=None,
+            verification_hash=None,
+            errors=[message],
+        )
 
     def _reverse_search(self, image_path: str | Path) -> tuple[ReverseSearchResult | None, str | None]:
         try:

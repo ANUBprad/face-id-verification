@@ -57,6 +57,14 @@ def _stage(name: str, state: str, detail: str) -> StageState:
 
 def _face_stage(report: VerificationReport) -> StageState:
     status = report.status
+    if status == "image_rejected":
+        # The structured status already says the input was refused by policy, so the
+        # message is passed through rather than re-classified by matching substrings.
+        return _stage(
+            "Face Detection",
+            "failed",
+            report.errors[0] if report.errors else "The image was rejected by the size policy.",
+        )
     if status == "face_detection_failed":
         detail = report.errors[0] if report.errors else "The face detection model could not be initialized."
         return _stage("Face Detection", "failed", detail)
@@ -142,7 +150,12 @@ def _blockchain_stage(blockchain_enabled: bool, report: VerificationReport) -> S
         if record.transaction_hash:
             return _stage("Blockchain", "pending", "Transaction submitted; confirmation pending.")
         return _stage("Blockchain", "complete", "Recorded on-chain.")
-    if report.status in ("face_detection_failed", "no_face_detected", "multiple_faces"):
+    if report.status in (
+        "face_detection_failed",
+        "no_face_detected",
+        "multiple_faces",
+        "image_rejected",
+    ):
         return _stage("Blockchain", "not_run", "Not run because verification did not complete.")
     return _stage("Blockchain", "not_run", "Not recorded.")
 
@@ -237,6 +250,10 @@ def build_verification_state(
                 "face_detection_failed": "Face detection failed, so the pipeline stopped.",
                 "no_face_detected": "No face detected, so the pipeline stopped.",
                 "multiple_faces": "Multiple faces detected, so the pipeline stopped.",
+                "image_rejected": (
+                    "The image was rejected because it is too large to process safely, "
+                    "so nothing was decoded, searched, or recorded."
+                ),
                 "metadata_failed": "Metadata extraction failed for all matching pages.",
             }.get(report.status, "The verification pipeline did not complete.")
         overall = OverallState(

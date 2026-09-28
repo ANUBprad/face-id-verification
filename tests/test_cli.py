@@ -14,6 +14,8 @@ from face_id_verification.cli import (
     EXIT_FACE_DETECTION,
     EXIT_METADATA,
     EXIT_REVERSE_SEARCH,
+    EXIT_METADATA,
+    EXIT_REVERSE_SEARCH,
     EXIT_SUCCESS,
     EXIT_USAGE,
     build_parser,
@@ -309,6 +311,18 @@ class TestNoFace:
         mock_verify.return_value = _make_report(status="multiple_faces")
         exit_code = main(["--image", fake_image, "--skip-blockchain"])
         assert exit_code == EXIT_FACE_DETECTION
+
+    @patch.object(VerificationPipeline, "verify")
+    def test_rejected_image_exit_code_is_a_face_detection_failure_not_a_later_stage(
+        self, mock_verify, fake_image
+    ):
+        """A rejected input is the user's problem to fix, not a search or chain problem."""
+        mock_verify.return_value = _make_report(
+            status="image_rejected", errors=["Too many pixels: 30000x30000."]
+        )
+        exit_code = main(["--image", fake_image, "--skip-blockchain"])
+        assert exit_code == EXIT_FACE_DETECTION
+        assert exit_code not in (EXIT_REVERSE_SEARCH, EXIT_METADATA, EXIT_BLOCKCHAIN)
 
     @patch.object(VerificationPipeline, "verify")
     def test_no_face_json_status(self, mock_verify, fake_image, capsys):

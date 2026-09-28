@@ -19,6 +19,7 @@ from web3 import Web3
 
 from face_id_verification.blockchain_recording import SEPOLIA_CHAIN_ID
 from face_id_verification.face_detection import FaceAnalyzer
+from face_id_verification.image_limits import ImageResourceError, check_image_bytes
 from face_id_verification.pipeline import VerificationPipeline, VerificationReport
 from face_id_verification.reverse_search import _image_kind
 from face_id_verification.web.hosts import TrustedHostGuard, is_cross_site, is_trusted_origin
@@ -337,6 +338,15 @@ def create_app(
                 status_code=400,
                 detail=f"Unsupported file type. Supported formats: {SUPPORTED_FORMATS}.",
             )
+
+        # The byte limit above bounds the upload, not the memory it decodes into. Read the
+        # dimensions from the header now, so an image that is small on the wire but huge
+        # when decoded is refused before it reaches a temp file, the model, or any paid
+        # request. An unreadable header is left to the decoder, which reports it properly.
+        try:
+            check_image_bytes(content)
+        except ImageResourceError as e:
+            raise HTTPException(status_code=413, detail=f"Image rejected: {e}") from None
 
         blockchain_enabled = _parse_boolean(enable_blockchain, "enable_blockchain")
 

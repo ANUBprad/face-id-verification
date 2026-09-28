@@ -243,7 +243,13 @@ class TestInputValidation:
             files={"image": ("notes.txt", b"hello world", "text/plain")},
         )
         assert response.status_code == 400
-        assert "Supported formats" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "Supported formats" in detail
+        # The list must actually be interpolated, not printed as a literal placeholder.
+        assert "{" not in detail
+        from face_id_verification.web.app import SUPPORTED_FORMATS
+
+        assert SUPPORTED_FORMATS in detail
 
     def test_oversized_upload_rejected(self, client):
         blob = b"\xff\xd8\xff\xe0" + b"\x00" * (10 * 1024 * 1024 + 1)

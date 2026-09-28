@@ -103,6 +103,27 @@ class TestFaceDetectionStage:
         )
         assert _by_name(state, "Face Detection").state == "failed"
 
+    def test_failed_when_image_rejected(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(
+                status="image_rejected",
+                errors=["Too many pixels: the image declares 30000x30000 pixels."],
+            ),
+        )
+        face = _by_name(state, "Face Detection")
+        assert face.state == "failed"
+        assert "30000x30000" in face.detail
+
+    def test_rejected_image_is_not_reported_as_a_model_failure(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(status="image_rejected", errors=["The image is too large."]),
+        )
+        assert _by_name(state, "Face Detection").detail != (
+            "The face detection model could not be initialized."
+        )
+
     def test_failed_when_detection_error(self):
         state = build_verification_state(
             blockchain_enabled=False,
@@ -458,6 +479,16 @@ class TestBlockchainStage:
 
 
 class TestOverallState:
+    def test_rejected_image_is_failed_and_records_nothing(self):
+        state = build_verification_state(
+            blockchain_enabled=True,
+            report=_report(status="image_rejected", errors=["Too many pixels."]),
+        )
+        assert state.overall.state == "failed"
+        assert "too large" in state.overall.detail
+        assert _by_name(state, "Blockchain").state == "not_run"
+        assert "did not complete" in _by_name(state, "Blockchain").detail
+
     def test_complete_success_with_blockchain_disabled(self):
         state = build_verification_state(
             blockchain_enabled=False,

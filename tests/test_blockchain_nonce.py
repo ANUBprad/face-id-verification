@@ -110,9 +110,11 @@ def _patched_record(node: FakeNode, exists: bool = False):
     mock_web3.HTTPProvider.return_value = MagicMock()
     mock_web3.return_value = w3
 
+    # record_verification reads the packaged ABI and w3.eth.contract is a double, so the
+    # ABI content is irrelevant here and no compiler is involved.
     return patch.object(br, "Web3", mock_web3), patch.object(
         br, "_load_config", return_value=("https://rpc.example.com", PRIVATE_KEY)
-    ), patch.object(br, "compile_contract", return_value={"abi": [], "bytecode": "0x"})
+    )
 
 
 def _run_concurrently(targets):
@@ -143,8 +145,8 @@ def _run_concurrently(targets):
 class TestNonceAllocation:
     def test_nonce_is_read_from_the_pending_block(self):
         node = FakeNode()
-        web3_patch, load_patch, compile_patch = _patched_record(node)
-        with web3_patch, load_patch, compile_patch:
+        web3_patch, load_patch = _patched_record(node)
+        with web3_patch, load_patch:
             record_verification(CONTRACT, "0x" + "ab" * 32)
         assert node.nonce_lookups == [NONCE_BLOCK]
         assert NONCE_BLOCK == "pending"
@@ -152,7 +154,7 @@ class TestNonceAllocation:
     def test_two_concurrent_writes_get_distinct_nonces(self):
         node = FakeNode()
         node.nonce_read_barrier = threading.Barrier(2)
-        web3_patch, load_patch, compile_patch = _patched_record(node)
+        web3_patch, load_patch = _patched_record(node)
 
         def record(tag: str):
             def run():
@@ -160,7 +162,7 @@ class TestNonceAllocation:
 
             return run
 
-        with web3_patch, load_patch, compile_patch:
+        with web3_patch, load_patch:
             _run_concurrently([record("ab"), record("cd")])
 
         assert sorted(node.broadcast_nonces) == [0, 1]
@@ -168,7 +170,7 @@ class TestNonceAllocation:
 
     def test_nonces_stay_sequential_across_many_concurrent_writes(self):
         node = FakeNode()
-        web3_patch, load_patch, compile_patch = _patched_record(node)
+        web3_patch, load_patch = _patched_record(node)
 
         def record(tag: str):
             def run():
@@ -177,14 +179,14 @@ class TestNonceAllocation:
             return run
 
         tags = [f"{index:02x}" for index in range(8)]
-        with web3_patch, load_patch, compile_patch:
+        with web3_patch, load_patch:
             _run_concurrently([record(tag) for tag in tags])
 
         assert sorted(node.broadcast_nonces) == list(range(8))
 
     def test_signing_and_sending_are_serialized(self):
         node = FakeNode()
-        web3_patch, load_patch, compile_patch = _patched_record(node)
+        web3_patch, load_patch = _patched_record(node)
 
         def record(tag: str):
             def run():
@@ -192,7 +194,7 @@ class TestNonceAllocation:
 
             return run
 
-        with web3_patch, load_patch, compile_patch:
+        with web3_patch, load_patch:
             _run_concurrently([record("ab"), record("cd")])
 
         assert node.lock_held_during_send == [True, True]
@@ -201,7 +203,7 @@ class TestNonceAllocation:
         """The next nonce must be allocatable while a receipt is still outstanding."""
         node = FakeNode()
         node.receipt_gate = threading.Event()
-        web3_patch, load_patch, compile_patch = _patched_record(node)
+        web3_patch, load_patch = _patched_record(node)
 
         def record(tag: str):
             def run():
@@ -212,7 +214,7 @@ class TestNonceAllocation:
         release = threading.Timer(0.4, node.receipt_gate.set)
         release.start()
         try:
-            with web3_patch, load_patch, compile_patch:
+            with web3_patch, load_patch:
                 _run_concurrently([record("ab"), record("cd")])
         finally:
             node.receipt_gate.set()
@@ -224,9 +226,9 @@ class TestNonceAllocation:
     def test_a_failed_send_releases_the_lock(self):
         node = FakeNode()
         node.fail_next_send = True
-        web3_patch, load_patch, compile_patch = _patched_record(node)
+        web3_patch, load_patch = _patched_record(node)
 
-        with web3_patch, load_patch, compile_patch:
+        with web3_patch, load_patch:
             with pytest.raises(Exception):
                 record_verification(CONTRACT, "0x" + "ab" * 32)
 
@@ -235,9 +237,9 @@ class TestNonceAllocation:
     def test_the_lock_is_usable_again_after_a_failure(self):
         node = FakeNode()
         node.fail_next_send = True
-        web3_patch, load_patch, compile_patch = _patched_record(node)
+        web3_patch, load_patch = _patched_record(node)
 
-        with web3_patch, load_patch, compile_patch:
+        with web3_patch, load_patch:
             with pytest.raises(Exception):
                 record_verification(CONTRACT, "0x" + "ab" * 32)
             record_verification(CONTRACT, "0x" + "cd" * 32)
@@ -246,10 +248,10 @@ class TestNonceAllocation:
 
     def test_a_failure_inside_build_releases_the_lock(self):
         node = FakeNode()
-        web3_patch, load_patch, compile_patch = _patched_record(node)
+        web3_patch, load_patch = _patched_record(node)
         broken_build = lambda nonce: (_ for _ in ()).throw(RuntimeError("bad tx"))  # noqa: E731
 
-        with web3_patch, load_patch, compile_patch:
+        with web3_patch, load_patch:
             with pytest.raises(RuntimeError, match="bad tx"):
                 br._sign_and_broadcast(
                     MagicMock(), from_address=ACCOUNT, private_key=PRIVATE_KEY,
@@ -260,8 +262,8 @@ class TestNonceAllocation:
 
     def test_duplicate_check_happens_before_any_signing(self):
         node = FakeNode()
-        web3_patch, load_patch, compile_patch = _patched_record(node, exists=True)
-        with web3_patch, load_patch, compile_patch:
+        web3_patch, load_patch = _patched_record(node, exists=True)
+        with web3_patch, load_patch:
             result = record_verification(CONTRACT, "0x" + "ab" * 32)
         assert result.duplicate is True
         assert node.broadcast_nonces == []

@@ -319,9 +319,9 @@ def record_verification(contract_address: str, verification_hash: str) -> Blockc
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     chain_id = _validate_chain(w3)
 
-    compiled = compile_contract()
+    abi = _packaged_abi()
     account = w3.eth.account.from_key(private_key)
-    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=compiled["abi"])
+    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=abi)
 
     already_exists = contract.functions.verificationExists(verification_bytes32).call()
     if already_exists:
@@ -378,8 +378,9 @@ def verify_on_chain(contract_address: str, verification_hash: str) -> bool:
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     _validate_chain(w3)
 
-    compiled = compile_contract()
-    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=compiled["abi"])
+    contract = w3.eth.contract(
+        address=Web3.to_checksum_address(contract_address), abi=_packaged_abi()
+    )
 
     verification_bytes32 = bytes.fromhex(verification_hash[2:])
     return contract.functions.verificationExists(verification_bytes32).call()
@@ -390,8 +391,9 @@ def get_verification_record(contract_address: str, verification_hash: str) -> Ve
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     _validate_chain(w3)
 
-    compiled = compile_contract()
-    contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=compiled["abi"])
+    contract = w3.eth.contract(
+        address=Web3.to_checksum_address(contract_address), abi=_packaged_abi()
+    )
 
     verification_bytes32 = bytes.fromhex(verification_hash[2:])
     recorder, timestamp, exists = contract.functions.getRecord(verification_bytes32).call()

@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-import math
-import os
 import contextlib
 import copy
 import json
+import math
+import os
+import re
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from web3 import Web3
 
+import face_id_verification.blockchain_recording as blockchain_recording
 from face_id_verification.blockchain_recording import (
     DEFAULT_GAS_LIMIT,
     DEPLOYMENT_GAS_MARGIN,
@@ -37,20 +40,177 @@ from face_id_verification.blockchain_recording import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _stub_internal_compilation():
-    """Remove the unasserted solc dependency from the mocked tests.
+_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678"
+_HASH = "0x" + "ab" * 32
+_PRIVATE_KEY = "0x" + "1" * 64
 
-    deploy_contract, record_verification, verify_on_chain and
-    get_verification_record all call compile_contract() internally even though
-    every other boundary is mocked, so without this they would need a real solc
-    0.8.28. Only TestCompileContract asserts on compilation output, and it calls
-    compile_contract through the name imported above, so patching the module
-    attribute leaves that class compiling for real (it is marked needs_solc).
+
+def _wire_w3(chain_id=SEPOLIA_CHAIN_ID, **eth):
+    """A Web3 double with a valid chain and sane defaults for the paths under test."""
+    w3 = MagicMock()
+    w3.eth.chain_id = chain_id
+    w3.eth.get_balance.return_value = 1_000_000_000_000_000_000
+    w3.eth.gas_price = 1_000_000_000
+    w3.eth.account.from_key.return_value = MagicMock(address=_ADDRESS)
+    w3.eth.get_transaction_count.return_value = 7
+    w3.eth.wait_for_transaction_receipt.return_value = MagicMock(
+        status=1, blockNumber=12345
+    )
+    w3.eth.send_raw_transaction.return_value = b"\xab" * 32
+    for name, value in eth.items():
+        getattr(w3.eth, name).return_value = value
+
+    mock_web3 = MagicMock()
+    mock_web3.keccak = Web3.keccak
+    mock_web3.to_checksum_address = Web3.to_checksum_address
+    mock_web3.HTTPProvider.return_value = MagicMock()
+    mock_web3.return_value = w3
+    return mock_web3, w3
+
+
+@contextlib.contextmanager
+def _installed_w3(chain_id=SEPOLIA_CHAIN_ID, **eth):
+    """Run a block with a mocked Web3, a valid config, and no live network access."""
+    mock_web3, w3 = _wire_w3(chain_id, **eth)
+    with patch("face_id_verification.blockchain_recording._load_config") as load:
+        load.return_value = ("https://rpc.example.com", _PRIVATE_KEY)
+        with patch("face_id_verification.blockchain_recording._load_rpc_config") as rpc:
+            rpc.return_value = "https://rpc.example.com"
+            with patch("face_id_verification.blockchain_recording.Web3", mock_web3):
+                yield w3
+
+
+def _wire_contract(w3, call_result):
+    """Bind a contract double and record the ABI it was actually constructed with."""
+    contract = MagicMock()
+    contract.functions.verificationExists.return_value.call.return_value = call_result
+    contract.functions.getRecord.return_value.call.return_value = call_result
+
+    def remember_abi(**kwargs):
+        contract.used_abi = kwargs.get("abi")
+        return contract
+
+    w3.eth.contract.side_effect = remember_abi
+    return contract
+
+
+@contextlib.contextmanager
+def _wire_record_verification(duplicate):
+    """Run a full record_verification call and hand back the contract it used."""
+    with _installed_w3() as w3:
+        contract = _wire_contract(w3, duplicate)
+        contract.functions.verificationExists.return_value.call.return_value = duplicate
+        w3.eth.wait_for_transaction_receipt.return_value = MagicMock(
+            status=1, blockNumber=12345
+        )
+        yield w3, contract
+
+
+class TestNoCompilerIsReachableAtRuntime:
+    """Recording and reading must never reach the compiler.
+
+    These are the operations a normal verification performs. A build tree left over from a
+    previous compile, or a solcx install, must make no difference to any of them, so the
+    guard is that importing and using solcx is not even possible while they run.
     """
-    with patch("face_id_verification.blockchain_recording.compile_contract") as mock:
-        mock.return_value = {"abi": [], "bytecode": "0x00"}
-        yield
+
+    @staticmethod
+    def _forbid_solcx(monkeypatch):
+        for name in list(sys.modules):
+            if name == "solcx" or name.startswith("solcx."):
+                monkeypatch.delitem(sys.modules, name, raising=False)
+
+        def forbidden(*_args, **_kwargs):
+            raise AssertionError("runtime path must not import solcx")
+
+        monkeypatch.setitem(sys.modules, "solcx", None)
+        monkeypatch.setitem(sys.modules, "solcx.compile_standard", forbidden)
+        return forbidden
+
+    def test_record_verification_works_with_solcx_unimportable(self, monkeypatch):
+        self._forbid_solcx(monkeypatch)
+        with _wire_record_verification(duplicate=False) as (_, contract):
+            record = record_verification(_ADDRESS, _HASH)
+        assert record.confirmed is True
+        assert record.transaction_hash == "0x" + "ab" * 32
+        assert record.duplicate is False
+        assert contract.used_abi == _packaged_abi()
+
+    def test_duplicate_record_path_works_with_solcx_unimportable(self, monkeypatch):
+        self._forbid_solcx(monkeypatch)
+        with _wire_record_verification(duplicate=True):
+            record = record_verification(_ADDRESS, _HASH)
+        assert record.duplicate is True
+        assert record.transaction_hash is None
+
+    def test_verify_on_chain_works_with_solcx_unimportable(self, monkeypatch):
+        self._forbid_solcx(monkeypatch)
+        with _installed_w3() as w3:
+            _wire_contract(w3, call_result=True)
+            assert verify_on_chain(_ADDRESS, _HASH) is True
+
+    def test_get_verification_record_works_with_solcx_unimportable(self, monkeypatch):
+        self._forbid_solcx(monkeypatch)
+        with _installed_w3() as w3:
+            _wire_contract(w3, call_result=("0x" + "cd" * 20, 1_700_000_000, True))
+            record = get_verification_record(_ADDRESS, _HASH)
+        assert record.recorder == "0x" + "cd" * 20
+        assert record.timestamp == 1_700_000_000
+        assert record.exists is True
+
+    def test_read_back_works_with_solcx_unimportable(self, monkeypatch):
+        self._forbid_solcx(monkeypatch)
+        with _installed_w3() as w3:
+            _wire_contract(w3, call_result=("0x" + "cd" * 20, 1_700_000_000, True))
+            readback = read_back_verification(_ADDRESS, _HASH)
+        assert readback.exists is True
+        assert readback.verified is True
+
+    def test_read_back_still_rejects_a_meaningless_recorder(self, monkeypatch):
+        self._forbid_solcx(monkeypatch)
+        with _installed_w3() as w3:
+            _wire_contract(w3, call_result=("0x" + "00" * 20, 0, True))
+            readback = read_back_verification(_ADDRESS, _HASH)
+        assert readback.verified is False
+
+    def test_no_files_are_written_to_the_working_directory(self, monkeypatch, tmp_path):
+        """The artifact is read from the package, so the caller's cwd stays untouched."""
+        self._forbid_solcx(monkeypatch)
+        workdir = tmp_path / "elsewhere"
+        workdir.mkdir()
+        monkeypatch.chdir(workdir)
+        with _installed_w3() as w3:
+            _wire_contract(w3, call_result=True)
+            assert verify_on_chain(_ADDRESS, _HASH) is True
+        assert list(workdir.iterdir()) == []
+
+    def test_deploy_is_the_only_operation_that_needs_a_compiler(self):
+        source = Path(blockchain_recording.__file__).read_text(encoding="utf-8")
+        assert source.count("compile_contract()") == 2, (
+            "one def plus exactly one caller, which must be deploy_contract"
+        )
+        deploy_body = source.split("def deploy_contract", 1)[1].split("\ndef ", 1)[0]
+        assert "compile_contract()" in deploy_body
+        assert source.count("import solcx") == 1
+
+
+class TestDeployStillCompiles:
+    def test_deploy_compiles_rather_than_using_the_packaged_abi(self, monkeypatch):
+        """Deployment needs bytecode, which is the one thing the artifact does not hold."""
+        calls = []
+
+        def fake_compile():
+            calls.append(1)
+            return {"abi": _packaged_abi(), "bytecode": "0x60" + "00" * 32}
+
+        with _installed_w3() as w3:
+            w3.eth.get_code.return_value = b"\x60"
+            with patch(
+                "face_id_verification.blockchain_recording.compile_contract", fake_compile
+            ):
+                with pytest.raises(Exception):
+                    deploy_contract()
+        assert calls == [1], "deploy_contract must compile"
 
 
 class TestCanonicalTxHash:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -16,6 +17,12 @@ logger = logging.getLogger(__name__)
 SEPOLIA_CHAIN_ID = 11155111
 EXPECTED_NETWORK_NAME = "Sepolia"
 SEPOLIA_EXPLORER_BASE = "https://sepolia.etherscan.io/tx"
+
+CONTRACT_NAME = "VerificationRegistry"
+# The pragma in VerificationRegistry.sol and the version used to generate
+# contracts/VerificationRegistry.abi.json. Changing either requires regenerating that
+# artifact, which the ABI drift test enforces.
+SOLC_VERSION = "0.8.28"
 
 DEFAULT_GAS_LIMIT = 100_000
 DEPLOYMENT_GAS_MARGIN = 1.2  # headroom over the node's simulation; a fixed 100k limit cannot cover bytecode deposit
@@ -186,6 +193,38 @@ def _contract_source() -> str:
     return contract_path.read_text()
 
 
+def _packaged_abi() -> list[dict]:
+    """The ABI of the deployed contract, read from the packaged artifact.
+
+    Recording and reading only ever call functions, so they need the ABI and never the
+    bytecode. Compiling on each call would make an ordinary verification depend on a solc
+    install plus a download, to derive something that cannot change without a redeploy.
+    """
+    path = resources.files("face_id_verification").joinpath(
+        "contracts", f"{CONTRACT_NAME}.abi.json"
+    )
+    try:
+        payload = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise BlockchainConfigurationError(
+            f"The packaged contract ABI is unreadable "
+            f"({CONTRACT_NAME}.abi.json). Reinstall face-id-verification."
+        ) from exc
+
+    try:
+        abi = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise BlockchainConfigurationError(
+            f"The packaged contract ABI is not valid JSON: {exc}"
+        ) from exc
+
+    if not isinstance(abi, list) or not abi:
+        raise BlockchainConfigurationError(
+            f"The packaged contract ABI is not a non-empty JSON array."
+        )
+    return abi
+
+
 def compile_contract() -> dict:
     import solcx
 
@@ -199,10 +238,10 @@ def compile_contract() -> dict:
                 "outputSelection": {"*": {"*": ["abi", "evm.bytecode"]}}
             },
         },
-        solc_version="0.8.28",
+        solc_version=SOLC_VERSION,
     )
 
-    contract_data = compiled["contracts"]["VerificationRegistry.sol"]["VerificationRegistry"]
+    contract_data = compiled["contracts"]["VerificationRegistry.sol"][CONTRACT_NAME]
     return {
         "abi": contract_data["abi"],
         "bytecode": contract_data["evm"]["bytecode"]["object"],

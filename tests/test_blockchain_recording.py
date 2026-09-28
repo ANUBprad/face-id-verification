@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import math
 import os
+import contextlib
+import copy
+import json
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,6 +32,7 @@ from face_id_verification.blockchain_recording import (
     _assert_sufficient_balance,
     _canonical_tx_hash,
     _estimate_deployment_gas,
+    _packaged_abi,
     _validate_chain,
 )
 
@@ -120,6 +125,18 @@ class TestBlockchainRecord:
         assert record.duplicate is True
 
 
+@contextlib.contextmanager
+def _abi_reading_from(path):
+    """Point the packaged-ABI loader at a caller-supplied file.
+
+    The real loader resolves the artifact through importlib.resources so that it works from
+    an installed wheel, where there is no source tree to resolve a path against.
+    """
+    with patch("face_id_verification.blockchain_recording.resources.files") as files:
+        files.return_value.joinpath.return_value = path
+        yield
+
+
 @pytest.mark.needs_solc
 class TestCompileContract:
     def test_compile_success(self):
@@ -142,6 +159,90 @@ class TestCompileContract:
         abi = compiled["abi"]
         event_names = [item["name"] for item in abi if item.get("type") == "event"]
         assert "VerificationRecorded" in event_names
+
+
+def _canonical(abi):
+    """Strip representation details that carry no meaning, and nothing else.
+
+    Only JSON object key order is normalized. Entry order, entry contents, mutability and
+    parameter order are all left alone: a difference in any of them means the artifact no
+    longer describes the deployed contract, which is exactly what this guard exists to
+    catch.
+    """
+    return json.dumps(abi, sort_keys=True)
+
+
+@pytest.mark.needs_solc
+class TestPackagedAbiMatchesTheCompiler:
+    """The artifact runtime operations trust is the one the compiler still produces.
+
+    Normal recording and read-back never compile, so this is the only thing standing
+    between a stale artifact and silently wrong calldata.
+    """
+
+    def test_packaged_abi_equals_the_compiler_abi(self):
+        assert _canonical(_packaged_abi()) == _canonical(compile_contract()["abi"])
+
+    def test_drift_is_reported_rather_than_ignored(self):
+        drifted = compile_contract()["abi"]
+        drifted = drifted + [
+            {
+                "inputs": [],
+                "name": "injectedDrift",
+                "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+                "stateMutability": "view",
+                "type": "function",
+            }
+        ]
+        assert _canonical(_packaged_abi()) != _canonical(drifted)
+
+    def test_mutability_change_is_reported_rather_than_ignored(self):
+        drifted = copy.deepcopy(compile_contract()["abi"])
+        for entry in drifted:
+            if entry.get("name") == "recordVerification":
+                entry["stateMutability"] = "view"
+        assert _canonical(_packaged_abi()) != _canonical(drifted)
+
+    def test_artifact_contains_no_bytecode(self):
+        """Packaging bytecode would bloat every install to serve one operation."""
+        assert not any("bytecode" in entry for entry in _packaged_abi())
+
+
+class TestPackagedAbiIsUsable:
+    def test_loads_without_a_compiler(self):
+        with patch.dict(sys.modules, {"solcx": None}):
+            abi = _packaged_abi()
+        assert {entry.get("name") for entry in abi} == {
+            "VerificationRecorded",
+            "getRecord",
+            "recordVerification",
+            "verificationExists",
+        }
+
+    def test_missing_artifact_fails_clearly(self, tmp_path):
+        with _abi_reading_from(tmp_path / "absent.abi.json"):
+            with pytest.raises(BlockchainConfigurationError, match="unreadable"):
+                _packaged_abi()
+
+    def test_malformed_json_fails_clearly(self, tmp_path):
+        broken = tmp_path / "broken.abi.json"
+        broken.write_text("{not json", encoding="utf-8")
+        with _abi_reading_from(broken):
+            with pytest.raises(BlockchainConfigurationError, match="not valid JSON"):
+                _packaged_abi()
+
+    @pytest.mark.parametrize("payload", ["{}", '{"abi": []}', "[]", "null", '"a string"'])
+    def test_json_that_is_not_an_abi_array_fails_clearly(self, tmp_path, payload):
+        not_an_abi = tmp_path / "shape.abi.json"
+        not_an_abi.write_text(payload, encoding="utf-8")
+        with _abi_reading_from(not_an_abi):
+            with pytest.raises(BlockchainConfigurationError, match="non-empty JSON array"):
+                _packaged_abi()
+
+    def test_the_failure_is_a_configuration_error_not_a_bare_oserror(self, tmp_path):
+        with _abi_reading_from(tmp_path / "absent.abi.json"):
+            with pytest.raises(BlockchainError):
+                _packaged_abi()
 
 
 class TestConfigErrors:

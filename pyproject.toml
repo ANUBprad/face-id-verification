@@ -39,6 +39,8 @@ where = ["src"]
 [tool.setuptools.package-data]
 face_id_verification = [
     "contracts/*.sol",
+    "contracts/*.abi.json",
+    "py.typed",
     "web/static/*",
     "web/static/assets/*",
     "web/static/assets/branding/*",

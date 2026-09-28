@@ -21,6 +21,15 @@ from face_id_verification.cli import (
     build_parser,
     main,
 )
+from face_id_verification.errors import (
+    CODE_BLOCKCHAIN_CONFIGURATION,
+    CODE_NO_FACE,
+    CODE_SEARCH_FAILED,
+    STAGE_BLOCKCHAIN,
+    STAGE_FACE_DETECTION,
+    STAGE_REVERSE_SEARCH,
+    VerificationError,
+)
 from face_id_verification.pipeline import (
     VerificationPipeline,
     VerificationReport,
@@ -51,6 +60,7 @@ def _make_report(
     errors=None,
     verification_schema=SCHEMA_ID,
     blockchain_readback=None,
+    error_details=None,
 ):
     return VerificationReport(
         status=status,
@@ -66,6 +76,7 @@ def _make_report(
         errors=errors or [],
         verification_schema=verification_schema,
         blockchain_readback=blockchain_readback,
+        error_details=error_details or [],
     )
 
 
@@ -331,6 +342,99 @@ class TestNoFace:
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert data["status"] == "no_face_detected"
+
+
+class TestExitCodeIsIndependentOfWording:
+    """Exit codes come from report status, so rewording a failure cannot move one.
+
+    Each pair keeps the same status and code and changes only the message, which is the
+    only thing a shell script might otherwise have been tempted to parse.
+    """
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "No face detected in the provided image.",
+            "nothing recognisable here",
+            "ZERO_SUBJECTS_FOUND",
+            "",
+        ],
+    )
+    def test_no_face_message_cannot_change_the_exit_code(self, message, capsys, fake_image):
+        with patch.object(
+            VerificationPipeline,
+            "verify",
+            return_value=_make_report(
+                status="no_face_detected",
+                errors=[message],
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_FACE_DETECTION, code=CODE_NO_FACE, message=message
+                    )
+                ],
+            ),
+        ):
+            assert main(["--image", fake_image, "--skip-blockchain"]) == EXIT_FACE_DETECTION
+
+    def test_search_failure_message_cannot_change_the_exit_code(self, capsys, fake_image):
+        for message in ("API quota exceeded", "totally unrelated wording"):
+            with patch.object(
+                VerificationPipeline,
+                "verify",
+                return_value=_make_report(
+                    status="reverse_search_failed",
+                    reverse_search_error=message,
+                    errors=[message],
+                    error_details=[
+                        VerificationError(
+                            stage=STAGE_REVERSE_SEARCH,
+                            code=CODE_SEARCH_FAILED,
+                            message=message,
+                        )
+                    ],
+                ),
+            ):
+                assert main(["--image", fake_image, "--skip-blockchain"]) == EXIT_REVERSE_SEARCH
+
+    def test_blockchain_failure_message_cannot_change_the_exit_code(self, capsys, fake_image):
+        for message in ("SEPOLIA_RPC_URL environment variable is not set", "x"):
+            with patch.object(
+                VerificationPipeline,
+                "verify",
+                return_value=_make_report(
+                    status="blockchain_failed",
+                    blockchain_error=message,
+                    errors=[message],
+                    error_details=[
+                        VerificationError(
+                            stage=STAGE_BLOCKCHAIN,
+                            code=CODE_BLOCKCHAIN_CONFIGURATION,
+                            message=message,
+                        )
+                    ],
+                ),
+            ):
+                assert main(["--image", fake_image, "--skip-blockchain"]) == EXIT_BLOCKCHAIN
+
+    def test_structured_details_are_printed_in_the_json_report(self, capsys, fake_image):
+        with patch.object(
+            VerificationPipeline,
+            "verify",
+            return_value=_make_report(
+                status="no_face_detected",
+                errors=["no face"],
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_FACE_DETECTION, code=CODE_NO_FACE, message="no face"
+                    )
+                ],
+            ),
+        ):
+            main(["--image", fake_image, "--skip-blockchain"])
+        detail = json.loads(capsys.readouterr().out)["error_details"]
+        assert detail == [
+            {"stage": "face_detection", "code": "no_face", "message": "no face"}
+        ]
 
 
 class TestReverseSearchFailure:

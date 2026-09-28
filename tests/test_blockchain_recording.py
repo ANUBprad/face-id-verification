@@ -968,6 +968,7 @@ class TestEstimateDeploymentGas:
             _estimate_deployment_gas(contract, "0xabc")
 
 
+@pytest.mark.needs_solc
 class TestDeployContractGasEstimation:
     @staticmethod
     def _build_mocks(estimate):

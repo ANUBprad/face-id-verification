@@ -1,0 +1,15 @@
+# Normalize text to LF in the repository, the working tree, and exported archives.
+#
+# Without this, core.autocrlf decides the line endings and a build from the working tree
+# produces different bytes than a build from `git archive`, so the same tracked source
+# yields two different wheels. Pinning eol=lf makes the stored blob authoritative for all
+# three, which is what makes a wheel reproducible from source alone.
+* text=auto eol=lf
+
+# Build and packaging inputs that are never text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

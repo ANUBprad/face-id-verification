@@ -329,22 +329,24 @@ For development/testing: `pip install -e ".[dev]"`.
 
 The install modes that exist are:
 
-| Command | What it adds |
-| --- | --- |
-| `pip install .` | Base install. Verification, recording, and on-chain read-back all work. |
-| `pip install ".[gcv]"` | The legacy Google Cloud Vision search provider. |
-| `pip install ".[contract]"` | A Solidity compiler, needed **only** to deploy the contract. |
-| `pip install -e ".[dev]"` | Development and test tooling. |
+| Command | What it adds | Who needs it |
+| --- | --- | --- |
+| `pip install .` | Base install: the pipeline, the web interface, and on-chain **recording, lookups, and read-back** | Everyone |
+| `pip install ".[contract]"` | `py-solc-x`, the Solidity compiler binding | Only contract **deployment** — and see the caveat below |
+| `pip install ".[gcv]"` | `google-cloud-vision`, the legacy search provider | Only if you inject `GoogleVisionSearcher` yourself |
+| `pip install -e ".[dev]"` | pytest, httpx, build tooling | Contributors |
 
 **A base install has no Solidity compiler.** Recording a verification and reading it back use the contract ABI packaged with MukhdaX, so they need no solc, no download, and no build step. Deploying `VerificationRegistry` is the one operation that must compile, because it is the only one that needs bytecode; without the `contract` extra it fails with a message naming the extra to install. See `docs/setup/contract.md`.
 
-Google Cloud Vision is likewise **not** a runtime dependency. It is only needed for the legacy `GoogleVisionSearcher` provider, which is not the default (the default is SerpApi Google Lens). If you want it:
+**The `contract` extra installs the binding, not the compiler.** `pip install "face-id-verification[contract]"` gives you `py-solc-x`; the `solc` **binary** is a separate step, and `deploy_contract()` fails with an explicit message if it is missing:
 
 ```bash
-pip install -e ".[gcv]"
+python -m solcx.install 0.8.28
 ```
 
-On first face-detection run, InsightFace downloads the `buffalo_l` model pack (needs network; then cached locally). The package bundles the Solidity contract, its compiled ABI, and the web UI, so no extra build step is required.
+Google Cloud Vision is likewise **not** a runtime dependency. It is only needed for the legacy `GoogleVisionSearcher` provider, which is not the default (the default is SerpApi Google Lens) and which is selected by constructor injection rather than by a flag or variable — see [docs/setup/gcp.md](docs/setup/gcp.md).
+
+On first face-detection run, InsightFace downloads the `buffalo_l` model pack (needs network; then cached locally). The package bundles the Solidity contract, its compiled ABI, and the built web UI, so no extra build step is required.
 
 ### 3. Configuration
 
@@ -633,6 +635,13 @@ Planned as *future work* — none of this exists yet:
 - [AGENTS.md](AGENTS.md) states the project's engineering rules — read it before contributing.
 - Keep changes verified: `python -m pytest -q -m "not integration and not needs_model and not needs_solc"` before committing. That is the offline suite; add `-m needs_solc` or `-m needs_model` only when you have deliberately installed the tool those tests need.
 - No CI pipeline is configured in the repository; pull requests are validated locally.
+
+### Distribution
+
+`python -m build` produces a wheel and a source distribution. Two deliberate choices:
+
+- The **wheel** carries the package, the Solidity source, the compiled ABI, the built web UI, and the type marker — nothing else, and no compiler.
+- The **sdist** additionally ships `tests/`, `tests/conftest.py`, and `.gitattributes`. That is intentional: the packaging tests in `tests/test_package.py` are part of the release's own contract, so the suite has to travel with it. It is not a mirror of the git repository — `docs/`, `EXTERNAL_SETUP.md`, and `AGENTS.md` are repository material and are not shipped; the long description is the `README.md` you are reading.
 
 ## License
 

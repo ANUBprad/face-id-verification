@@ -795,14 +795,30 @@ class TestOnChainReadBack:
             contract_address="0x1234567890abcdef1234567890abcdef12345678",
         )
 
-    def _record(self, confirmed=True, duplicate=False):
+    def _record(self):
+        """The shape record_verification returns after a successful Sepolia write."""
         return BlockchainRecord(
             verification_hash="0x" + "ab" * 32,
             transaction_hash="0x" + "1" * 64,
             block_number=123,
-            confirmed=confirmed,
-            duplicate=duplicate,
+            confirmed=True,
+            duplicate=False,
             explorer_url="https://sepolia.etherscan.io/tx/0x" + "1" * 64,
+        )
+
+    def _duplicate_record(self):
+        """The shape record_verification returns when the hash is already recorded.
+
+        A duplicate carries no transaction: nothing was sent, so there is no transaction
+        hash, no block, and no confirmation.
+        """
+        return BlockchainRecord(
+            verification_hash="0x" + "ab" * 32,
+            transaction_hash=None,
+            block_number=None,
+            confirmed=False,
+            duplicate=True,
+            explorer_url=None,
         )
 
     def test_readback_runs_after_confirmed_write(self, sample_image):
@@ -873,7 +889,7 @@ class TestOnChainReadBack:
         with (
             patch(
                 "face_id_verification.pipeline.record_verification",
-                return_value=self._record(duplicate=True),
+                return_value=self._duplicate_record(),
             ),
             patch(
                 "face_id_verification.pipeline.read_back_verification",
@@ -885,11 +901,117 @@ class TestOnChainReadBack:
         assert report.blockchain_readback is not None
         mock_readback.assert_called_once()
 
-    def test_no_readback_when_transaction_reverted(self, sample_image):
+    def test_duplicate_is_not_reported_as_reverted(self, sample_image):
+        readback = VerificationReadBack(
+            verification_hash="0x" + "ab" * 32,
+            exists=True,
+            verified=True,
+        )
         with (
             patch(
                 "face_id_verification.pipeline.record_verification",
-                return_value=self._record(confirmed=False),
+                return_value=self._duplicate_record(),
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                return_value=readback,
+            ),
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        assert report.blockchain_error is None
+        assert report.errors == []
+        assert report.blockchain is not None
+        assert report.blockchain.duplicate is True
+        assert report.blockchain.transaction_hash is None
+        assert report.blockchain.block_number is None
+        assert report.blockchain.explorer_url is None
+        assert "reverted" not in " ".join(report.errors).lower()
+        assert report.status == "success"
+
+    def test_duplicate_succeeds_only_after_verified_readback(self, sample_image):
+        readback = VerificationReadBack(
+            verification_hash="0x" + "ab" * 32,
+            exists=True,
+            verified=False,
+        )
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=self._duplicate_record(),
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                return_value=readback,
+            ),
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        assert report.status == "blockchain_failed"
+        assert report.blockchain_readback is not None
+        assert any("already exists" in error for error in report.errors)
+        assert "reverted" not in " ".join(report.errors).lower()
+
+    def test_duplicate_fails_when_readback_absent(self, sample_image):
+        readback = VerificationReadBack(
+            verification_hash="0x" + "ab" * 32,
+            exists=False,
+            verified=False,
+        )
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=self._duplicate_record(),
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                return_value=readback,
+            ),
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        assert report.status == "blockchain_failed"
+        assert report.blockchain.duplicate is True
+        assert any("already exists" in error for error in report.errors)
+
+    def test_duplicate_fails_when_readback_errors(self, sample_image):
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=self._duplicate_record(),
+            ),
+            patch(
+                "face_id_verification.pipeline.read_back_verification",
+                side_effect=BlockchainError("Sepolia RPC unavailable"),
+            ),
+        ):
+            report = self._pipeline(sample_image).verify(sample_image)
+
+        assert report.status == "blockchain_failed"
+        assert report.blockchain_readback is None
+        assert report.blockchain_readback_error == "Sepolia RPC unavailable"
+        assert report.errors == ["Sepolia RPC unavailable"]
+        assert "reverted" not in " ".join(report.errors).lower()
+
+    def test_unconfirmed_record_without_duplicate_flag_is_a_failure(self, sample_image):
+        """A non-duplicate record that never confirmed must not be reported as success.
+
+        record_verification raises on a reverted transaction, so this guards the
+        classification against any producer that returns an unconfirmed, non-duplicate
+        record rather than fabricating success from an unproven write.
+        """
+        unconfirmed = BlockchainRecord(
+            verification_hash="0x" + "ab" * 32,
+            transaction_hash=None,
+            block_number=None,
+            confirmed=False,
+            duplicate=False,
+            explorer_url=None,
+        )
+        with (
+            patch(
+                "face_id_verification.pipeline.record_verification",
+                return_value=unconfirmed,
             ),
             patch("face_id_verification.pipeline.read_back_verification") as mock_readback,
         ):

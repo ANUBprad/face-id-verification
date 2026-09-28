@@ -87,6 +87,25 @@ def image_content_hash(image_path: str | Path) -> str:
     return "0x" + hashlib.sha256(data).hexdigest()
 
 
+def _duplicate_readback_error(
+    record: BlockchainRecord | None,
+    readback: VerificationReadBack | None,
+) -> str | None:
+    """A pre-existing record only counts once read-back proves it is really on-chain.
+
+    ``duplicate=True`` is not a confirmation: it only reports that a matching record was
+    already present, so the claim still has to be corroborated by an independent read.
+    """
+    if record is None or not record.duplicate:
+        return None
+    if readback is not None and readback.verified:
+        return None
+    return (
+        "An on-chain record already exists for this verification hash, but reading it "
+        "back did not confirm a stored record, so the anchor is unconfirmed."
+    )
+
+
 class VerificationPipeline:
     def __init__(
         self,
@@ -188,15 +207,24 @@ class VerificationPipeline:
             verification_hash, blockchain_record
         )
 
+        # Already reported by readback_error, so a duplicate is not blamed twice.
+        duplicate_error = (
+            None
+            if readback_error
+            else _duplicate_readback_error(blockchain_record, readback)
+        )
+
         if blockchain_error:
             errors.append(blockchain_error)
+        if duplicate_error:
+            errors.append(duplicate_error)
         if readback_error:
             errors.append(readback_error)
 
         status = self._determine_status(
             faces, search_result, search_error, metadata_results,
             blockchain_error=blockchain_error,
-            blockchain_readback_error=readback_error,
+            blockchain_readback_error=readback_error or duplicate_error,
         )
 
         return VerificationReport(
@@ -347,7 +375,10 @@ class VerificationPipeline:
 
         try:
             record = record_verification(self._contract_address, verification_hash)
-            if not record.confirmed:
+            # A duplicate is not a reverted transaction: no transaction was sent and none
+            # was reverted. Treating it as a failure would invent a revert that never
+            # happened and discard a record that genuinely exists on-chain.
+            if not record.confirmed and not record.duplicate:
                 raise BlockchainError(
                     f"Transaction reverted on Sepolia: tx {record.transaction_hash}"
                 )

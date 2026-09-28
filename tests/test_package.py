@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from importlib.metadata import entry_points, version
 from pathlib import Path, PurePosixPath
 
 import pytest
 
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent / "src" / "face_id_verification"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOT = REPO_ROOT / "src" / "face_id_verification"
 
 
 def _package_data_patterns() -> list[str]:
@@ -79,6 +82,131 @@ class TestDeclaredExtras:
             "google-cloud-vision" in requirement
             for requirement in self._pyproject()["project"]["dependencies"]
         )
+
+
+class TestWheelContentsAreIndependentOfBuildHistory:
+    """A wheel must be a function of tracked source, not of what was built before.
+
+    setuptools copies package data into build/lib and never removes files that were
+    deleted from the source tree, so build/lib accumulates the union of every past build.
+    Real wheels once shipped logo files that no longer existed in source, because the
+    stale copies were still there to be matched.
+    """
+
+    STATIC = PACKAGE_ROOT / "web" / "static"
+
+    def _static_files(self) -> set[str]:
+        return {
+            path.relative_to(PACKAGE_ROOT).as_posix()
+            for path in self.STATIC.rglob("*")
+            if path.is_file()
+        }
+
+    def test_a_deleted_asset_cannot_survive_in_a_rebuild(self, tmp_path):
+        """Simulates a rename, which is how the stale logos were created.
+
+        The build output is a plain directory under the repository root, so the copy of a
+        deleted file has to be planted there for the build to have any chance of finding
+        it. Nothing is written under tracked source: build/ is ignored, and the planted
+        files are removed again afterwards.
+        """
+        build_root = REPO_ROOT / "build"
+        package = build_root / "lib" / "face_id_verification"
+        plant = [
+            package / "web" / "static" / "MUKHDAX_STALE_BUILD_SENTINEL.txt",
+            package / "contracts" / "MUKHDAX_STALE_BUILD_SENTINEL.txt",
+            package / "MUKHDAX_STALE_BUILD_SENTINEL.txt",
+        ]
+        for path in plant:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("stale", encoding="utf-8")
+
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable, "-m", "build", "--wheel", "--no-isolation",
+                    "--outdir", str(tmp_path / "out"),
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=1800,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+
+            wheels = list((tmp_path / "out").glob("*.whl"))
+            assert len(wheels) == 1, wheels
+            with zipfile.ZipFile(wheels[0]) as archive:
+                names = archive.namelist()
+        finally:
+            for path in plant:
+                path.unlink(missing_ok=True)
+            shutil.rmtree(build_root, ignore_errors=True)
+
+        assert not [n for n in names if "MUKHDAX_STALE_BUILD_SENTINEL" in n], (
+            "a file that exists only in build output leaked into the wheel"
+        )
+
+    def test_the_wheel_ships_exactly_the_static_files_in_the_source_tree(self):
+        """The logical inventory is the source tree, so a missing asset cannot hide."""
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "build", "--wheel", "--no-isolation",
+                "--outdir", str(REPO_ROOT / "build" / "wheel-probe"),
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        try:
+            wheels = list((REPO_ROOT / "build" / "wheel-probe").glob("*.whl"))
+            assert len(wheels) == 1, wheels
+            with zipfile.ZipFile(wheels[0]) as archive:
+                shipped = {
+                    name[len("face_id_verification/") :]
+                    for name in archive.namelist()
+                    if name.startswith("face_id_verification/web/static/")
+                }
+        finally:
+            shutil.rmtree(REPO_ROOT / "build" / "wheel-probe", ignore_errors=True)
+
+        assert shipped == self._static_files()
+
+
+class TestLineEndingsArePinned:
+    """Line endings must not depend on a developer's checkout settings.
+
+    core.autocrlf rewrites text files on checkout, so a build from the working tree
+    produced different bytes than a build from git archive. That is a content difference,
+    not a cosmetic one, and it is why .gitattributes pins eol=lf.
+    """
+
+    def test_gitattributes_pins_lf_for_text(self):
+        attributes = REPO_ROOT / ".gitattributes"
+        assert attributes.is_file(), "without .gitattributes the wheel depends on core.autocrlf"
+        rules = attributes.read_text(encoding="utf-8")
+        assert "text=auto" in rules
+        assert "eol=lf" in rules
+
+    def test_tracked_text_matches_the_stored_blob(self):
+        probe = REPO_ROOT / "src" / "face_id_verification" / "web" / "static" / "assets" / "favicon.svg"
+        blob = subprocess.run(
+            ["git", "show", f"HEAD:{probe.relative_to(REPO_ROOT).as_posix()}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=120,
+        )
+        assert blob.returncode == 0, blob.stderr
+        assert probe.read_bytes() == blob.stdout, (
+            "the working tree copy differs from the stored blob, so a build here would "
+            "not match a build from git archive"
+        )
+
+    def test_png_assets_are_marked_binary(self):
+        rules = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
+        assert "*.png binary" in rules
 
 
 class TestPackageData:

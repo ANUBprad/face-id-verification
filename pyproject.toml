@@ -30,7 +30,18 @@ contract = ["py-solc-x>=2.0.0"]
 # Legacy Google Cloud Vision Web Detection provider. Not used by the default
 # SerpApi Google Lens path; the package imports without it.
 gcv = ["google-cloud-vision>=3.5.0"]
-dev = ["pytest>=7.0", "httpx>=0.27.0"]
+# The packaging regression tests in tests/test_package.py build real wheels with
+# `python -m build --no-isolation`. No isolation means no implicit environment, so the
+# frontend and the build backend both have to be present. setuptools and wheel mirror
+# [build-system].requires on purpose. All three are test tooling: installing the package
+# never compiles anything.
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.27.0",
+    "build>=1.0",
+    "setuptools>=68.0",
+    "wheel",
+]
 
 [project.scripts]
 face-id-verification = "face_id_verification.cli:main"

@@ -56,6 +56,85 @@ class TestLoadImageBytes:
                 _load_image_bytes(img_path)
 
 
+class TestPrepareUploadBytesResourcePolicy:
+    """This searcher is usable on its own, so it must apply the same policy face detection does.
+
+    Without the gate, a 119 KB file declaring 30000x30000 reaches cv2.imdecode here and the
+    allocation is sized entirely by the untrusted header.
+    """
+
+    def test_a_tiny_bomb_is_never_decoded_because_it_is_forwarded_untouched(self, image_bomb):
+        """Under the provider's byte limit nothing is decoded, so nothing can be allocated."""
+        from face_id_verification.reverse_search import _prepare_upload_bytes
+
+        with patch("face_id_verification.reverse_search.cv2.imdecode") as imdecode:
+            assert _prepare_upload_bytes(image_bomb) is image_bomb
+        imdecode.assert_not_called()
+
+    def test_an_oversized_image_never_reaches_the_decoder(self, large_wire_bomb):
+        from face_id_verification.image_limits import ImageResourceError
+        from face_id_verification.reverse_search import _prepare_upload_bytes
+
+        with patch("face_id_verification.reverse_search.cv2.imdecode") as imdecode:
+            with pytest.raises(ImageResourceError):
+                _prepare_upload_bytes(large_wire_bomb)
+        imdecode.assert_not_called()
+
+    def test_a_lying_decoder_is_caught_after_decoding(self):
+        from face_id_verification.image_limits import ImageResourceError
+        from face_id_verification.reverse_search import _prepare_upload_bytes
+
+        # 4000x4001 is over the pixel cap while both edges are still within the edge caps.
+        oversized = MagicMock(shape=(4000, 4001, 3))
+        with patch(
+            "face_id_verification.reverse_search.cv2.imdecode", return_value=oversized
+        ):
+            with pytest.raises(ImageResourceError, match="Too many pixels"):
+                _prepare_upload_bytes(b"\x00" * 600 * 1024)
+
+    def test_a_normal_large_image_is_still_compressed_and_accepted(self):
+        """The gate must not break the recompression the provider's limit depends on."""
+        import cv2
+        import numpy as np
+
+        from face_id_verification.reverse_search import (
+            SERPAPI_MAX_IMAGE_BYTES,
+            _prepare_upload_bytes,
+        )
+
+        noise = np.random.default_rng(1234).integers(
+            0, 256, (1600, 1600, 3), dtype=np.uint8
+        )
+        ok, buf = cv2.imencode(".jpg", noise)
+        assert ok
+        source = buf.tobytes()
+        assert len(source) > SERPAPI_MAX_IMAGE_BYTES
+
+        prepared = _prepare_upload_bytes(source)
+        assert len(prepared) <= SERPAPI_MAX_IMAGE_BYTES
+
+    def test_a_small_image_is_passed_through_untouched(self):
+        from face_id_verification.reverse_search import _prepare_upload_bytes
+
+        data = b"\xff\xd8\xff\xe0small"
+        assert _prepare_upload_bytes(data) is data
+
+    def test_no_paid_upload_is_attempted_for_a_rejected_image(
+        self, tmp_path: Path, large_wire_bomb
+    ):
+        from face_id_verification.image_limits import ImageResourceError
+        from face_id_verification.reverse_search import SerpApiLensSearcher
+
+        img = tmp_path / "bomb.png"
+        img.write_bytes(large_wire_bomb)
+        searcher = SerpApiLensSearcher()
+        searcher._api_key = MagicMock(return_value="test-key")
+        with patch.object(SerpApiLensSearcher, "_upload") as upload:
+            with pytest.raises(ImageResourceError):
+                searcher.search(img)
+        upload.assert_not_called(), "no provider request may be made for a rejected image"
+
+
 class TestParseWebDetection:
     def _make_web_image(self, url: str) -> MagicMock:
         img = MagicMock()

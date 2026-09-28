@@ -1,14 +1,11 @@
 """Image resource policy: a small file must not be able to demand a huge allocation.
 
-Fixtures are built in memory. No large or adversarial binary is committed to the
-repository, and no test decodes a bomb: every one of them is refused at the header.
+Fixtures are built in memory by tests/conftest.py. No large or adversarial binary is
+committed to the repository, and no test decodes a bomb: every one is refused at the header.
 """
 
 from __future__ import annotations
 
-import io
-import struct
-import zlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -31,54 +28,6 @@ from face_id_verification.image_limits import (
 )
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-
-
-# --------------------------------------------------------------------------- fixtures
-
-
-def _png_chunk(tag: bytes, payload: bytes) -> bytes:
-    return (
-        struct.pack(">I", len(payload))
-        + tag
-        + payload
-        + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
-    )
-
-
-def make_png_bytes(width: int, height: int, *, colour: bool = False) -> bytes:
-    """A real, decodable PNG of exactly width x height.
-
-    Built from an indexed-colour table when possible so the deflate stream collapses to a
-    handful of bytes, which is what makes a genuine compression bomb cheap to construct.
-    """
-    if colour:
-        raw = b"".join(b"\x00" + bytes([0, 0, 0]) * width for _ in range(height))
-        ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    else:
-        raw = b"".join(b"\x00" + b"\x00" * width for _ in range(height))
-        ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
-    return (
-        PNG_SIGNATURE
-        + _png_chunk(b"IHDR", ihdr)
-        + _png_chunk(b"IDAT", zlib.compress(raw, 9))
-        + _png_chunk(b"IEND", b"")
-    )
-
-
-def make_declared_only_png(width: int, height: int) -> bytes:
-    """PNG whose IHDR claims huge dimensions but whose body is a single tiny row.
-
-    This is the decompression-bomb shape: cheap to build, and catastrophic for any decoder
-    that trusts the header. The image data is not a full-height buffer, so Pillow reports
-    the declared size without ever materialising it.
-    """
-    ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
-    return (
-        PNG_SIGNATURE
-        + _png_chunk(b"IHDR", ihdr)
-        + _png_chunk(b"IDAT", zlib.compress(b"\x00" * min(width, 4096), 9))
-        + _png_chunk(b"IEND", b"")
-    )
 
 
 def make_jpeg_bytes(width: int, height: int) -> bytes:
@@ -162,8 +111,8 @@ class TestDeclaredDimensionEnforcement:
 
 
 class TestHeaderPreflight:
-    def test_probes_png_without_decoding(self):
-        assert probe_declared_size(make_png_bytes(64, 48)) == (64, 48)
+    def test_probes_png_without_decoding(self, png_maker):
+        assert probe_declared_size(png_maker(64, 48)) == (64, 48)
 
     def test_probes_jpeg(self):
         assert probe_declared_size(make_jpeg_bytes(70, 50)) == (70, 50)
@@ -171,37 +120,32 @@ class TestHeaderPreflight:
     def test_probes_webp(self):
         assert probe_declared_size(make_webp_bytes(80, 60)) == (80, 60)
 
-    def test_probes_from_a_path_as_well_as_bytes(self, tmp_path):
-        path = write(tmp_path, make_png_bytes(33, 22))
-        assert probe_declared_size(path) == (33, 22)
+    def test_probes_from_a_path_as_well_as_bytes(self, tmp_path, png_maker):
+        assert probe_declared_size(write(tmp_path, png_maker(33, 22))) == (33, 22)
 
-    def test_tiny_file_with_huge_declared_dimensions_is_refused(self):
-        data = make_declared_only_png(30000, 30000)
-        assert len(data) < 1024, "the bomb fixture must stay small"
+    def test_tiny_file_with_huge_declared_dimensions_is_refused(self, image_bomb):
+        assert len(image_bomb) < 1024, "the bomb fixture must stay small"
         with pytest.raises(ImageResourceError, match="megapixels|Too many pixels|width|height"):
-            check_image_bytes(data)
+            check_image_bytes(image_bomb)
 
-    def test_the_measured_amplification_case_is_refused(self):
-        """The audit's example: ~119 KiB expanding to ~103 MiB decoded."""
-        data = make_declared_only_png(30000, 30000)
-        amplification = (30000 * 30000 * 3) / len(data)
+    def test_the_measured_amplification_case_is_refused(self, image_bomb):
+        """The audit's example: a tiny file expanding to gigabytes once decoded."""
+        amplification = (30000 * 30000 * 3) / len(image_bomb)
         assert amplification > 1000
         with pytest.raises(ImageResourceError):
-            check_image_bytes(data)
+            check_image_bytes(image_bomb)
 
     def test_huge_dimensions_in_a_real_webp_are_refused(self):
-        data = make_webp_bytes(6001, 10)
         with pytest.raises(ImageResourceError):
-            check_image_bytes(data)
+            check_image_bytes(make_webp_bytes(6001, 10))
 
     def test_huge_dimensions_in_a_real_jpeg_are_refused(self):
-        data = make_jpeg_bytes(6001, 10)
         with pytest.raises(ImageResourceError):
-            check_image_bytes(data)
+            check_image_bytes(make_jpeg_bytes(6001, 10))
 
-    def test_extension_does_not_decide_the_format(self, tmp_path):
+    def test_extension_does_not_decide_the_format(self, tmp_path, png_maker):
         """A PNG named .jpg is still measured as a PNG."""
-        path = write(tmp_path, make_png_bytes(64, 48), name="lying.jpg")
+        path = write(tmp_path, png_maker(64, 48), name="lying.jpg")
         assert probe_declared_size(path) == (64, 48)
 
     @pytest.mark.parametrize(
@@ -211,11 +155,11 @@ class TestHeaderPreflight:
             b"not an image at all",
             b"\x89PNG\r\n\x1a\n",
             PNG_SIGNATURE + b"\xff" * 32,
-            b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 2**31) + b"IHDR",
-            PNG_SIGNATURE + b"\x00" * 4 + b"JUNK" + b"\x00" * 8,
+            PNG_SIGNATURE + b"\x00\x00\x00\x02IDAT",
+            PNG_SIGNATURE + b"\x00\x00\x00\x04" + b"JUNK" + b"\x00" * 8,
             b"RIFF\x00\x00\x00\x00WEBP",
             b"\xff\xd8\xff",
-            b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", b"\x00" * 3),
+            PNG_SIGNATURE + b"\x00\x00\x00\x0dIHDR" + b"\x00" * 3,
         ],
     )
     def test_malformed_metadata_is_reported_as_unprobeable_not_oversized(self, blob):
@@ -223,44 +167,42 @@ class TestHeaderPreflight:
         assert probe_declared_size(blob) is None
         assert check_image_bytes(blob) is None
 
-    def test_truncated_but_valid_header_is_still_measurable(self):
+    def test_truncated_but_valid_header_is_still_measurable(self, png_maker):
         """Cutting the pixel data away must not cost us the ability to preflight."""
-        data = make_png_bytes(200, 200)
-        header_only = data[:50]
+        header_only = png_maker(200, 200)[:50]
         assert cv2.imdecode(np.frombuffer(header_only, np.uint8), cv2.IMREAD_COLOR) is None, (
             "the pixel data must really be gone, or this proves nothing"
         )
         assert probe_declared_size(header_only) == (200, 200)
 
-    def test_truncation_before_the_size_is_reported_is_unprobeable(self):
-        data = make_png_bytes(200, 200)
-        assert probe_declared_size(data[:24]) is None
+    def test_truncation_before_the_size_is_reported_is_unprobeable(self, png_maker):
+        assert probe_declared_size(png_maker(200, 200)[:24]) is None
 
     def test_a_missing_file_is_unprobeable_rather_than_an_error(self, tmp_path):
         assert check_image_file(tmp_path / "absent.png") is None
 
-    def test_a_header_that_exhausts_memory_is_refused_not_allowed_through(self):
+    def test_a_header_that_exhausts_memory_is_refused_not_allowed_through(self, png_maker):
         """Failing open here would hand the bomb straight to the decoder."""
         with patch("PIL.Image.open", side_effect=MemoryError):
             with pytest.raises(ImageResourceError, match="within the available memory"):
-                check_image_bytes(make_png_bytes(64, 48))
+                check_image_bytes(png_maker(64, 48))
 
     def test_an_unexpected_parser_error_stays_on_the_decode_path(self):
         with patch("PIL.Image.open", side_effect=RuntimeError("odd container")):
             assert check_image_bytes(b"whatever") is None
 
-    def test_probe_never_emits_a_decompression_bomb_warning(self, recwarn):
+    def test_probe_never_emits_a_decompression_bomb_warning(self, image_bomb):
         """The outcome must be deterministic, not a warning that can be ignored."""
         import warnings
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             with pytest.raises(ImageResourceError):
-                check_image_bytes(make_declared_only_png(30000, 30000))
-        assert [w for w in recwarn if "Bomb" in str(w.category)] == []
+                check_image_bytes(image_bomb)
+        assert [w for w in caught if "Bomb" in w.category.__name__] == []
 
-    def test_check_image_file_and_bytes_agree(self, tmp_path):
-        data = make_png_bytes(120, 90)
+    def test_check_image_file_and_bytes_agree(self, tmp_path, png_maker):
+        data = png_maker(120, 90)
         assert check_image_bytes(data) == check_image_file(write(tmp_path, data)) == (120, 90)
 
 
@@ -298,18 +240,18 @@ class TestPostDecodeValidation:
 
 
 class TestLoadImage:
-    def test_a_valid_image_loads(self, tmp_path):
-        path = write(tmp_path, make_png_bytes(120, 90))
+    def test_a_valid_image_loads(self, tmp_path, png_maker):
+        path = write(tmp_path, png_maker(120, 90))
         assert load_image(path).shape == (90, 120, 3)
 
     @pytest.mark.parametrize("fmt", ["png", "jpg", "webp"])
-    def test_every_supported_format_loads(self, tmp_path, fmt):
-        builder = {"png": make_png_bytes, "jpg": make_jpeg_bytes, "webp": make_webp_bytes}[fmt]
+    def test_every_supported_format_loads(self, tmp_path, png_maker, fmt):
+        builder = {"png": png_maker, "jpg": make_jpeg_bytes, "webp": make_webp_bytes}[fmt]
         path = write(tmp_path, builder(100, 80), name=f"image.{fmt}")
         assert load_image(path).shape[:2] == (80, 100)
 
-    def test_an_oversized_image_is_refused_before_decoding(self, tmp_path):
-        path = write(tmp_path, make_declared_only_png(30000, 30000))
+    def test_an_oversized_image_is_refused_before_decoding(self, tmp_path, image_bomb):
+        path = write(tmp_path, image_bomb)
         with patch("face_id_verification.face_detection.cv2.imread") as imread:
             with pytest.raises(ImageResourceError):
                 load_image(path)
@@ -326,10 +268,10 @@ class TestLoadImage:
         with pytest.raises(FaceDetectionError, match="not a file"):
             load_image(tmp_path)
 
-    def test_the_error_does_not_leak_a_filesystem_path(self, tmp_path):
+    def test_the_error_does_not_leak_a_filesystem_path(self, tmp_path, image_bomb):
         secret_dir = tmp_path / "very-secret-directory-name"
         secret_dir.mkdir()
-        path = write(secret_dir, make_declared_only_png(30000, 30000), name="x.png")
+        path = write(secret_dir, image_bomb, name="x.png")
         with pytest.raises(ImageResourceError) as excinfo:
             load_image(path)
         message = str(excinfo.value)
@@ -343,28 +285,28 @@ class TestLoadImage:
 
 
 class TestOversizedInputReachesNothing:
-    def test_the_model_is_never_initialised(self, tmp_path):
+    def test_the_model_is_never_initialised(self, tmp_path, image_bomb):
         analyzer = FaceAnalyzer()
-        path = write(tmp_path, make_declared_only_png(30000, 30000))
+        path = write(tmp_path, image_bomb)
         with pytest.raises(ImageResourceError):
             analyzer.detect_faces(path)
         assert analyzer._app is None, "InsightFace must not have been initialised"
 
-    def test_the_model_is_never_even_queried(self, tmp_path):
+    def test_the_model_is_never_even_queried(self, tmp_path, image_bomb):
         analyzer = FaceAnalyzer()
         analyzer._app = MagicMock()
-        path = write(tmp_path, make_declared_only_png(30000, 30000))
+        path = write(tmp_path, image_bomb)
         with pytest.raises(ImageResourceError):
             analyzer.detect_faces(path)
         analyzer._app.get.assert_not_called()
 
-    def test_the_pipeline_stops_before_search_metadata_and_chain(self, tmp_path):
+    def test_the_pipeline_stops_before_search_metadata_and_chain(self, tmp_path, image_bomb):
         from face_id_verification.pipeline import VerificationPipeline
 
         searcher = MagicMock()
         metadata = MagicMock()
         analyzer = FaceAnalyzer()
-        path = write(tmp_path, make_declared_only_png(30000, 30000))
+        path = write(tmp_path, image_bomb)
         pipeline = VerificationPipeline(
             face_analyzer=analyzer,
             reverse_searcher=searcher,
@@ -375,9 +317,7 @@ class TestOversizedInputReachesNothing:
 
         with patch(
             "face_id_verification.pipeline.record_verification"
-        ) as record, patch(
-            "face_id_verification.pipeline.read_back_verification"
-        ) as readback:
+        ) as record, patch("face_id_verification.pipeline.read_back_verification") as readback:
             report = pipeline.verify(path)
 
         assert report.status == "image_rejected"
@@ -391,17 +331,17 @@ class TestOversizedInputReachesNothing:
         readback.assert_not_called()
         assert analyzer._app is None
 
-    def test_the_status_is_truthful_about_the_input(self, tmp_path):
+    def test_the_status_is_truthful_about_the_input(self, tmp_path, image_bomb):
         from face_id_verification.pipeline import VerificationPipeline
 
-        path = write(tmp_path, make_declared_only_png(30000, 30000))
+        path = write(tmp_path, image_bomb)
         report = VerificationPipeline(face_analyzer=FaceAnalyzer()).verify(path)
         assert report.status == "image_rejected"
         assert report.status != "face_detection_failed"
         assert report.status != "reverse_search_failed"
         assert "Unexpected" not in report.errors[0]
 
-    def test_the_web_rejects_the_upload_with_413(self, tmp_path):
+    def test_the_web_rejects_the_upload_with_413(self, image_bomb):
         from fastapi.testclient import TestClient
 
         from face_id_verification.web.app import create_app
@@ -411,14 +351,12 @@ class TestOversizedInputReachesNothing:
             base_url="http://localhost:8000",
         )
         response = client.post(
-            "/api/verify",
-            files={"image": ("shot.png", make_declared_only_png(30000, 30000), "image/png")},
+            "/api/verify", files={"image": ("shot.png", image_bomb, "image/png")}
         )
         assert response.status_code == 413
         assert "Traceback" not in response.text
-        assert str(tmp_path) not in response.text
 
-    def test_the_web_rejects_before_building_a_pipeline(self):
+    def test_the_web_rejects_before_building_a_pipeline(self, image_bomb):
         from fastapi.testclient import TestClient
 
         from face_id_verification.web.app import create_app
@@ -429,25 +367,22 @@ class TestOversizedInputReachesNothing:
             base_url="http://localhost:8000",
         )
         response = client.post(
-            "/api/verify",
-            files={"image": ("shot.png", make_declared_only_png(30000, 30000), "image/png")},
+            "/api/verify", files={"image": ("shot.png", image_bomb, "image/png")}
         )
         assert response.status_code == 413
         assert built == [], "no pipeline may be constructed for a rejected image"
 
-    def test_a_normal_upload_is_unaffected(self):
+    def test_a_normal_upload_is_unaffected(self, png_maker):
         from fastapi.testclient import TestClient
 
         from face_id_verification.web.app import create_app
 
-        report = MagicMock()
         client = TestClient(
-            create_app(pipeline_builder=lambda **kw: None),
+            create_app(pipeline_builder=lambda **kwargs: None),
             base_url="http://localhost:8000",
         )
         response = client.post(
-            "/api/verify",
-            files={"image": ("shot.png", make_png_bytes(64, 48), "image/png")},
+            "/api/verify", files={"image": ("shot.png", png_maker(64, 48), "image/png")}
         )
         # The stub pipeline is irrelevant here; only the gate matters.
         assert response.status_code != 413

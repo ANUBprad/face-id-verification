@@ -10,6 +10,8 @@ import cv2
 import numpy as np
 import requests
 
+from face_id_verification.image_limits import check_image_bytes, enforce_decoded_shape
+
 logger = logging.getLogger(__name__)
 
 SERPAPI_IMAGE_URL = "https://serpapi.com/image"
@@ -85,12 +87,22 @@ def _prepare_upload_bytes(data: bytes) -> bytes:
     if len(data) <= SERPAPI_MAX_IMAGE_BYTES:
         return data
 
+    # Only the recompression branch decodes anything, so the resource policy is needed here
+    # and nowhere above. This searcher is also usable without face detection, so it cannot
+    # assume the pipeline already vetted the file.
+    check_image_bytes(data)
+
     image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ReverseSearchError(
             "Unsupported or undecodable image format for the reverse-search image upload."
         )
 
+    enforce_decoded_shape(image)
+
+    # Every scale and quality below only ever shrinks the image, and each candidate is
+    # accepted only while it stays within the provider's byte limit, so the peak memory
+    # here is one decoded image plus one smaller copy.
     for scale in _RESIZE_SCALES:
         resized = image if scale == 1.0 else cv2.resize(
             image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA

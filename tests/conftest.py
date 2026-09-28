@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import struct
+import zlib
 from pathlib import Path
 
 import cv2
@@ -8,6 +10,88 @@ import numpy as np
 import pytest
 
 from face_id_verification import config
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _png_chunk(tag: bytes, payload: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(payload))
+        + tag
+        + payload
+        + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
+    )
+
+
+def png_bytes(width: int, height: int) -> bytes:
+    """A real, decodable greyscale PNG of exactly width x height.
+
+    A single-colour image deflates to almost nothing, which is what lets the bomb fixtures
+    below be genuine compression bombs of well under a kilobyte.
+    """
+    raw = b"".join(b"\x00" + b"\x00" * width for _ in range(height))
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    return (
+        PNG_SIGNATURE
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", zlib.compress(raw, 9))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def declared_size_only_png(width: int, height: int, payload_size: int = 0) -> bytes:
+    """A PNG whose IHDR claims huge dimensions but whose body is not a full-height buffer.
+
+    This is the decompression-bomb shape: cheap to build, and catastrophic for any decoder
+    that trusts the header. The declared size can be measured without ever materialising the
+    pixels. ``payload_size`` inflates the file on the wire, which is what forces a caller
+    that would otherwise pass small bytes straight through into actually decoding it; the
+    filler is a seeded PRNG so it does not deflate away and the fixture stays deterministic.
+    """
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    if payload_size:
+        payload = np.random.default_rng(20240617).bytes(payload_size)
+    else:
+        payload = b"\x00" * min(width, 4096)
+    return (
+        PNG_SIGNATURE
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", zlib.compress(payload, 9))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+@pytest.fixture(scope="session")
+def png_maker():
+    """Factory for a real, decodable PNG of an exact size, valid or deliberately hostile."""
+    return png_bytes
+
+
+@pytest.fixture(scope="session")
+def bomb_maker():
+    """Factory for a small file whose header declares a huge size."""
+    return declared_size_only_png
+
+
+@pytest.fixture(scope="session")
+def image_bomb(bomb_maker) -> bytes:
+    """A sub-kilobyte file that declares 30000x30000: 900 MP, roughly 2.7 GB decoded."""
+    data = bomb_maker(30000, 30000)
+    assert len(data) < 1024
+    return data
+
+
+@pytest.fixture(scope="session")
+def large_wire_bomb(bomb_maker) -> bytes:
+    """The same 900 MP claim, but over the provider's 500 KB upload limit.
+
+    The tiny bomb above never reaches a decoder, because anything that small is forwarded
+    without being decoded at all. This one is large enough on the wire to force the
+    recompression branch, which is where a real allocation would otherwise happen.
+    """
+    data = bomb_maker(30000, 30000, payload_size=700_000)
+    assert len(data) > 500 * 1024, "must exceed the provider's upload limit to be decoded"
+    return data
 
 try:
     import requests

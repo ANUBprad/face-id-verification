@@ -2,7 +2,7 @@
 
 ### See. Trace. Verify.
 
-MukhdaX turns an image containing a face into a **tamper-evident provenance report**: it detects the face, derives a fixed-length face representation, genuinely discovers where that image appears on the public web via Google Lens, fingerprints the whole evidence set under an explicit versioned schema, and can anchor the fingerprint on the Ethereum Sepolia testnet — then reads the record straight back from the chain.
+MukhdaX turns an image containing a face into a **tamper-evident provenance report**: it detects the face, derives a fixed-length face representation, genuinely discovers where that image appears on the public web via Google Lens, commits the whole evidence set to a single hash under an explicit versioned schema, and can anchor that hash on the Ethereum Sepolia testnet — then reads the record straight back from the chain.
 
 It is a **verification pipeline**, not a facial-recognition or identity-matching product.
 
@@ -25,26 +25,44 @@ flowchart TD
     A[Face / Image Input] --> B[Face Detection<br/>InsightFace · buffalo_l · SCRFD]
     B --> C{Exactly one face?}
     C -->|0 or multiple| E1[Report: no_face_detected<br/>or multiple_faces]
-    C -->|one face| D[Face Representation<br/>ArcFace 512-dim · SHA-256 fingerprint]
+    C -->|one face| D[Face Representation<br/>ArcFace 512-dim · SHA-256 digest]
     A --> H
-    D --> R[Reverse Image Discovery<br/>SerpApi × Google Lens]
-    R --> M[Source Metadata<br/>OpenGraph / Twitter / HTML meta]
-    H & D & R & M --> V[Verification Fingerprint<br/>mukhdax/v1 canonical JSON · Keccak-256]
+    D --> R
+    R --> M
+    H & D & R & M --> V[Canonical evidence<br/>mukhdax/v1 JSON · Keccak-256 hash]
     V --> B1{Blockchain enabled?}
     B1 -->|yes| S[VerificationRegistry<br/>Ethereum Sepolia · chain 11155111]
     S --> O[On-chain read-back verification]
     B1 -->|no| Z[Structured JSON Report]
     O --> Z
     E1 --> Z
+
+    subgraph LOCAL["Local machine — private by default"]
+        A
+        B
+        D
+        H[Canonical evidence payload]
+        V
+        Z
+    end
+
+    subgraph EXT["External services — data leaves the machine"]
+        R[Reverse Image Discovery<br/>SerpApi × Google Lens<br/>sends the image bytes]
+        M[Source Metadata<br/>fetches each matched page<br/>site sees a crawler request]
+        S
+        O
+    end
 ```
 
 - **Face / Image Input** — a JPG, PNG, or WebP file.
 - **Face Detection** — local, CPU-based InsightFace (`buffalo_l`); the pipeline requires **exactly one** clear face.
-- **Face Representation** — a 512-dimensional ArcFace embedding, reduced to a one-way SHA-256 fingerprint; the raw embedding never leaves the machine.
-- **Reverse Image Discovery** — a genuine **SerpApi × Google Lens** visual search; matching public pages are real API results, never preselected.
-- **Source Metadata** — the discovered pages are fetched over HTTP and parsed for OpenGraph / Twitter / standard meta tags.
-- **Verification Fingerprint** — a versioned (`mukhdax/v1`) **Keccak-256** hash over a canonical, integer-only JSON evidence payload.
-- **Blockchain** — when enabled, the fingerprint is recorded on the **VerificationRegistry** contract on **Ethereum Sepolia** and verified by reading it back on-chain.
+- **Face Representation** — a 512-dimensional ArcFace embedding, reduced to a one-way SHA-256 digest; the raw embedding never leaves the machine.
+- **Reverse Image Discovery** — a genuine **SerpApi × Google Lens** visual search; the image bytes are uploaded to SerpApi, and matching public pages are real API results, never preselected.
+- **Source Metadata** — the discovered pages are fetched over HTTP and parsed for OpenGraph / Twitter / standard meta tags; each target site sees an ordinary crawler request.
+- **Canonical evidence / verification hash** — a versioned (`mukhdax/v1`) **Keccak-256** hash over a canonical, integer-only JSON evidence payload. The full evidence set stays local; only this 32-byte hash can be anchored.
+- **Blockchain** — when enabled, the verification hash is recorded on the **VerificationRegistry** contract on **Ethereum Sepolia** and verified by reading it back on-chain.
+
+The two boxes are the trust boundary that matters: the image bytes cross to a third-party search provider, and a single 32-byte hash crosses to a public chain. Everything in the face-analysis and hashing path stays on your machine. See [Security & privacy](#security--privacy) for the full data-flow table.
 
 ## Why MukhdaX?
 
@@ -59,7 +77,7 @@ Faces and images circulate far beyond their origin. MukhdaX binds a face-centere
 
 MukhdaX does **not** perform biometric identity verification. It does not determine whether a face belongs to a particular person, and it does not compare a face against a reference identity image.
 
-- Face detection + face representation are **evidence components** of a provenance fingerprint.
+- Face detection + face representation are **evidence components** of the verification hash, not identity proof on their own.
 - Google Lens matches are **reverse-image discovery evidence** — pages on which the same or a visually similar image already appears publicly. They do not prove ownership and do not prove a person's identity.
 
 The output is a verifiable record of *the content analyzed*: which face was detected, where the image publicly matches, what metadata those pages expose, and a hash binding it all together.
@@ -70,7 +88,7 @@ The output is a verifiable record of *the content analyzed*: which face was dete
 - **Exactly-one-face enforcement** — 0 faces or multiple faces short-circuit to an explicit report status.
 - **Genuine reverse-image discovery** — real SerpApi Google Lens calls; no hardcoded or predetermined results.
 - **Metadata extraction** — public source pages are parsed for canonical URL, title, description, images, dates, site name, content type, and platform.
-- **Versioned verification fingerprint** — SHA-256 for the image content and embedding; the final record hash is Keccak-256 over the versioned `mukhdax/v1` canonical evidence payload.
+- **Versioned canonical evidence** — SHA-256 for the image content and embedding; the final record hash is Keccak-256 over the versioned `mukhdax/v1` canonical evidence payload.
 - **Ethereum Sepolia anchoring** — real transactions; a duplicate hash is detected before a transaction is sent, so nothing is broadcast and no gas is spent; read-only on-chain verification without a private key.
 - **CLI + browser UI** — `face-id-verification` console command and a local FastAPI web interface drive the same pipeline.
 
@@ -80,7 +98,7 @@ The output is a verifiable record of *the content analyzed*: which face was dete
 2. **Represent** — the face is embedded with ArcFace into 512 dimensions; only the `SHA-256` hash of the embedding is kept.
 3. **Discover** — the image bytes are sent to SerpApi's `google_lens` search. Real matching pages come back and are normalized (deduplicated, etc.). An image with no matches is a valid "no match" result.
 4. **Extract** — each discovered page is fetched and parsed for standard, OpenGraph, and Twitter meta data; per-page errors are preserved, not hidden.
-5. **Fingerprint** — all evidence (image content hash, face representation, reverse-search results, metadata) is serialized to versioned `mukhdax/v1` canonical JSON and hashed with **Keccak-256**.
+5. **Commit** — all evidence (image content hash, face representation, reverse-search results, metadata) is serialized to versioned `mukhdax/v1` canonical JSON and hashed with **Keccak-256** into a single verification hash.
 6. **Anchor** — if blockchain recording is enabled and a contract address is provided, the hash is first checked with `verificationExists`; if it is not already on-chain, `recordVerification(bytes32)` is called on Sepolia, a real transaction is broadcast, and its receipt must report `status == 1`. If the hash *is* already recorded, nothing is broadcast — the report carries `duplicate: true` and no transaction hash.
 7. **Verify** — the hash is read back with `verificationExists` / `getRecord` — independent, read-only, and private-key-free.
 8. **Report** — a structured JSON `VerificationReport` is printed to stdout and optionally written to `--output-dir/verification_report.json`.
@@ -95,7 +113,7 @@ The output is a verifiable record of *the content analyzed*: which face was dete
 | Exactly-one-face rule | 0 faces → `no_face_detected`; multiple → `multiple_faces`; model failure → `face_detection_failed` |
 | Raw embedding | computed in memory, hashed with SHA-256 (`embedding_hash`), never stored or transmitted raw |
 
-The embedding is **not** an identity match. It is a fixed-length representation used to fingerprint the evidence set; note that model inference is not guaranteed bit-identical across environments.
+The embedding is **not** an identity match. It is a fixed-length representation used to commit to the evidence set; note that model inference is not guaranteed bit-identical across environments.
 
 ## Reverse image search
 
@@ -162,13 +180,13 @@ The payload is built by `src/face_id_verification/verification_hash.py` under an
 
 **Included:** `schema`, `image_content_hash`, per-face `bounding_box` / `detection_confidence_ppm` / `embedding_hash`, reverse-search counts, entity descriptions and `score_ppm`, best-guess labels, page URLs, and per-URL metadata (`source_url`, `title`, `platform`, `has_error`).
 
-**Report-only:** individual `full_matching_images`, `partial_matching_images`, and `visually_similar_images` URLs are reported but not serialized individually — v1 fingerprints only the `full_matches` / `partial_matches` **counts** and the ordered `page_urls`. `page_title` is likewise excluded, since it is presentation text.
+**Report-only:** individual `full_matching_images`, `partial_matching_images`, and `visually_similar_images` URLs are reported but not serialized individually — v1 serializes only the `full_matches` / `partial_matches` **counts** and the ordered `page_urls`. `page_title` is likewise excluded, since it is presentation text.
 
-Because the counts are part of the fingerprint, a run whose provider reports exact matches hashes differently from an otherwise identical run whose provider reports none. The schema meaning is unchanged; only the evidence differs. Adding image URLs to v1 would require a `mukhdax/v2` decision.
+Because the counts are part of the hashed evidence, a run whose provider reports exact matches hashes differently from an otherwise identical run whose provider reports none. The schema meaning is unchanged; only the evidence differs. Adding image URLs to v1 would require a `mukhdax/v2` decision.
 
 **Excluded by construction:** local file paths, execution timestamps, RPC endpoints, transaction hashes, block numbers, machine details, and error text.
 
-**Heads-up:** the on-chain fingerprint is Keccak-256, not SHA-256. Keep the two apart.
+**Heads-up:** the on-chain verification hash is Keccak-256, not SHA-256. Keep the two apart: the SHA-256 digests are internal evidence components, the Keccak-256 hash is the record.
 
 ### Legacy records
 
@@ -182,10 +200,10 @@ The contract stores a bare `bytes32` and no schema tag, so a legacy record and a
 
 Canonical serialization is deterministic. **Model inference is not guaranteed to be.** Specifically:
 
-- `embedding_hash` is a SHA-256 digest of an ArcFace embedding produced by InsightFace and ONNX Runtime. That inference can shift across library versions, CPU instruction sets, or thread counts, so the same photograph is **not** guaranteed to yield the same fingerprint on a different machine. Versioning the serialization cannot fix this.
-- Unicode is escaped, not normalized. Precomposed `Ü` and `U` + combining diaeresis are distinct byte sequences and produce different fingerprints.
-- Evidence ordering is preserved because it is meaningful. Re-running a reverse-image search later may legitimately return the same evidence in a different rank, which changes the fingerprint even though the subject is unchanged.
-- Search and metadata results are **live web data** and drift over time. A fingerprint therefore attests to *the evidence as observed at that time*, not to a permanently stable fact.
+- `embedding_hash` is a SHA-256 digest of an ArcFace embedding produced by InsightFace and ONNX Runtime. That inference can shift across library versions, CPU instruction sets, or thread counts, so the same photograph is **not** guaranteed to yield the same verification hash on a different machine. Versioning the serialization cannot fix this.
+- Unicode is escaped, not normalized. Precomposed `Ü` and `U` + combining diaeresis are distinct byte sequences and produce different verification hashes.
+- Evidence ordering is preserved because it is meaningful. Re-running a reverse-image search later may legitimately return the same evidence in a different rank, which changes the verification hash even though the subject is unchanged.
+- Search and metadata results are **live web data** and drift over time. A verification hash therefore attests to *the evidence as observed at that time*, not to a permanently stable fact.
 
 ## Blockchain
 

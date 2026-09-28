@@ -190,10 +190,35 @@ class TestLineEndingsArePinned:
         assert "text=auto" in rules
         assert "eol=lf" in rules
 
-    def test_tracked_text_matches_the_stored_blob(self):
-        probe = REPO_ROOT / "src" / "face_id_verification" / "web" / "static" / "assets" / "favicon.svg"
+    def test_distributed_text_is_lf_normalized(self):
+        """The invariant the policy exists to protect: distributed text bytes are LF.
+
+        Asserted from the source tree alone, so it also holds in a git archive or
+        a source tarball, where no repository history exists to compare against.
+        """
+        probe = PACKAGE_ROOT / "web" / "static" / "assets" / "favicon.svg"
+        raw = probe.read_bytes()
+        assert b"\r\n" not in raw, "a CRLF line ending reached a distributed text asset"
+        assert b"\r" not in raw, "a bare CR reached a distributed text asset"
+        raw.decode("utf-8")
+
+    def test_source_text_matches_the_stored_blob(self):
+        """The stronger half of the same invariant: this tree is what git exports.
+
+        A checkout can rewrite line endings, so the working-tree bytes are compared
+        with the committed blob. That comparison needs repository metadata, which a
+        source export does not carry, so it is skipped there and the source-only
+        check above carries the policy instead.
+        """
+        probe = PACKAGE_ROOT / "web" / "static" / "assets" / "favicon.svg"
+        relative = probe.relative_to(REPO_ROOT).as_posix()
+        if not (REPO_ROOT / ".git").exists():
+            pytest.skip(
+                "no git metadata in this source tree; the LF policy itself is covered "
+                "by test_distributed_text_is_lf_normalized"
+            )
         blob = subprocess.run(
-            ["git", "show", f"HEAD:{probe.relative_to(REPO_ROOT).as_posix()}"],
+            ["git", "show", f"HEAD:{relative}"],
             cwd=REPO_ROOT,
             capture_output=True,
             timeout=120,

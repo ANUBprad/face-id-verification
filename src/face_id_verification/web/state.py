@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from face_id_verification.errors import (
+    CODE_BLOCKCHAIN_CONFIGURATION,
+    CODE_SEARCH_CONFIGURATION,
+    CODE_SEARCH_UNAVAILABLE,
+)
 from face_id_verification.pipeline import VerificationReport
 
 _STATE_LABELS = {
@@ -13,20 +18,13 @@ _STATE_LABELS = {
     "pending": "PENDING",
 }
 
-_REVERSE_BLOCK_MARKERS = (
-    "SERPAPI_API_KEY",
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    "Application Default Credentials",
-    "could not automatically determine credentials",
-    "invalid authentication credentials",
-    "billing",
-    "API key",
-)
+# A stage that could never have run because the operator must act first, as opposed to one
+# that failed and may be worth retrying. Selected by code, never by reading a message.
+_BLOCKED_SEARCH_CODES = (CODE_SEARCH_CONFIGURATION, CODE_SEARCH_UNAVAILABLE)
 
 
-def _is_external_dependency_blocked(message: str) -> bool:
-    lowered = message.lower()
-    return any(marker.lower() in lowered for marker in _REVERSE_BLOCK_MARKERS)
+def _has_code(report: VerificationReport, *codes: str) -> bool:
+    return any(detail.code in codes for detail in report.error_details)
 
 
 @dataclass(frozen=True)
@@ -95,7 +93,7 @@ def _reverse_search_stage(report: VerificationReport, face_failed: bool) -> Stag
             "Reverse Image Search", "not_run", f"Not run because {_not_run_reason(report)}."
         )
     if report.reverse_search_error:
-        if _is_external_dependency_blocked(report.reverse_search_error):
+        if _has_code(report, *_BLOCKED_SEARCH_CODES):
             return _stage(
                 "Reverse Image Search",
                 "blocked",
@@ -149,14 +147,13 @@ def _blockchain_stage(blockchain_enabled: bool, report: VerificationReport) -> S
     if not blockchain_enabled:
         return _stage("Blockchain", "disabled", "Disabled - no on-chain record was created.")
     if report.blockchain_error:
-        detail = report.blockchain_error
-        if "environment variable is not set" in detail:
+        if _has_code(report, CODE_BLOCKCHAIN_CONFIGURATION):
             return _stage(
                 "Blockchain",
                 "blocked",
                 "Configuration required: SEPOLIA_RPC_URL / SEPOLIA_PRIVATE_KEY are not set.",
             )
-        return _stage("Blockchain", "failed", detail)
+        return _stage("Blockchain", "failed", report.blockchain_error)
     if report.blockchain:
         record = report.blockchain
         if record.duplicate:

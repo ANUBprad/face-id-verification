@@ -1,6 +1,16 @@
 from __future__ import annotations
 
 from face_id_verification.blockchain_recording import BlockchainRecord
+from face_id_verification.errors import (
+    CODE_BLOCKCHAIN_CONFIGURATION,
+    CODE_BLOCKCHAIN_WRITE_FAILED,
+    CODE_SEARCH_CONFIGURATION,
+    CODE_SEARCH_FAILED,
+    CODE_SEARCH_UNAVAILABLE,
+    STAGE_BLOCKCHAIN,
+    STAGE_REVERSE_SEARCH,
+    VerificationError,
+)
 from face_id_verification.pipeline import (
     FaceResult,
     MetadataResult,
@@ -27,6 +37,7 @@ def _report(
     errors=None,
     verification_hash="0xabc",
     blockchain_readback_error=None,
+    error_details=None,
 ):
     if blockchain_error or blockchain_readback_error:
         status = "blockchain_failed"
@@ -43,6 +54,7 @@ def _report(
         verification_hash=verification_hash,
         errors=errors or [],
         blockchain_readback_error=blockchain_readback_error,
+        error_details=error_details or [],
     )
 
 
@@ -179,6 +191,13 @@ class TestReverseSearchStage:
                     "Application Default Credentials are configured."
                 ),
                 status="reverse_search_failed",
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_REVERSE_SEARCH,
+                        code=CODE_SEARCH_CONFIGURATION,
+                        message="provider not configured",
+                    )
+                ],
             ),
         )
         search = _by_name(state, "Reverse Image Search")
@@ -196,6 +215,13 @@ class TestReverseSearchStage:
                     "SERPAPI_API_KEY is required (set the SERPAPI_API_KEY environment variable)."
                 ),
                 status="reverse_search_failed",
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_REVERSE_SEARCH,
+                        code=CODE_SEARCH_CONFIGURATION,
+                        message="no api key",
+                    )
+                ],
             ),
         )
         search = _by_name(state, "Reverse Image Search")
@@ -295,6 +321,13 @@ class TestMetadataStage:
                 metadata=[],
                 metadata_errors=["Metadata extraction skipped: reverse search did not complete"],
                 status="reverse_search_failed",
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_REVERSE_SEARCH,
+                        code=CODE_SEARCH_CONFIGURATION,
+                        message="provider not configured",
+                    )
+                ],
             ),
         )
         metadata = _by_name(state, "Metadata")
@@ -312,6 +345,13 @@ class TestMetadataStage:
                     "SERPAPI_API_KEY is required (set the SERPAPI_API_KEY environment variable)."
                 ),
                 status="reverse_search_failed",
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_REVERSE_SEARCH,
+                        code=CODE_SEARCH_CONFIGURATION,
+                        message="no api key",
+                    )
+                ],
             ),
         )
         metadata = _by_name(state, "Metadata")
@@ -458,6 +498,13 @@ class TestBlockchainStage:
                 reverse_search=_search_with_pages(),
                 metadata=_metadata(),
                 blockchain_error="environment variable is not set: SEPOLIA_RPC_URL",
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_BLOCKCHAIN,
+                        code=CODE_BLOCKCHAIN_CONFIGURATION,
+                        message="configuration missing",
+                    )
+                ],
             ),
         )
         blockchain = _by_name(state, "Blockchain")
@@ -493,10 +540,112 @@ class TestBlockchainStage:
                 status="reverse_search_failed",
                 reverse_search_error="nope",
                 blockchain_error="environment variable is not set: SEPOLIA_RPC_URL",
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_BLOCKCHAIN,
+                        code=CODE_BLOCKCHAIN_CONFIGURATION,
+                        message="configuration missing",
+                    )
+                ],
             ),
         )
-        blockchain = _by_name(state, "Blockchain")
-        assert blockchain.state == "blocked"
+        assert _by_name(state, "Blockchain").state == "blocked"
+
+
+class TestWordingIndependence:
+    """Classification must survive any rewording of the same structured failure.
+
+    Each case pairs the OLD substring heuristic with a message it would have misread, so a
+    regression to prose matching fails here rather than in production.
+    """
+
+    @staticmethod
+    def _reverse_state(message, code):
+        return _by_name(
+            build_verification_state(
+                blockchain_enabled=False,
+                report=_report(
+                    faces=_faces(1),
+                    reverse_search_error=message,
+                    status="reverse_search_failed",
+                    error_details=[
+                        VerificationError(
+                            stage=STAGE_REVERSE_SEARCH, code=code, message=message
+                        )
+                    ],
+                ),
+            ),
+            "Reverse Image Search",
+        )
+
+    def test_configuration_code_blocks_even_with_no_credentials_wording(self):
+        """The old marker list looked for GOOGLE_APPLICATION_CREDENTIALS and friends."""
+        state = self._reverse_state(
+            "upstream said no", CODE_SEARCH_CONFIGURATION
+        )
+        assert state.state == "blocked"
+
+    def test_configuration_code_blocks_when_the_message_merely_mentions_billing(self):
+        state = self._reverse_state(
+            "the account is out of billing credit", CODE_SEARCH_CONFIGURATION
+        )
+        assert state.state == "blocked"
+
+    def test_provider_failure_stays_failed_even_if_it_names_an_api_key(self):
+        """The old heuristic would have called this blocked purely for saying 'API key'."""
+        state = self._reverse_state(
+            "upstream rotated the API key mid-session and dropped the connection",
+            CODE_SEARCH_FAILED,
+        )
+        assert state.state == "failed"
+
+    def test_unavailable_code_blocks_even_though_wording_suggests_retry(self):
+        state = self._reverse_state(
+            "temporary upstream glitch, try again later", CODE_SEARCH_UNAVAILABLE
+        )
+        assert state.state == "blocked"
+
+    @staticmethod
+    def _blockchain_state(message, code=None):
+        return _by_name(
+            build_verification_state(
+                blockchain_enabled=True,
+                report=_report(
+                    faces=_faces(1),
+                    reverse_search=_search_with_pages(),
+                    metadata=_metadata(),
+                    blockchain_error=message,
+                    error_details=(
+                        [
+                            VerificationError(
+                                stage=STAGE_BLOCKCHAIN, code=code, message=message
+                            )
+                        ]
+                        if code
+                        else []
+                    ),
+                ),
+            ),
+            "Blockchain",
+        )
+
+    def test_blockchain_configuration_blocks_without_the_env_var_phrase(self):
+        """The old check was a literal 'environment variable is not set' substring."""
+        state = self._blockchain_state(
+            "operator needs to finish setup", CODE_BLOCKCHAIN_CONFIGURATION
+        )
+        assert state.state == "blocked"
+
+    def test_blockchain_failure_stays_failed_even_when_it_mentions_an_env_var(self):
+        state = self._blockchain_state(
+            "connection refused while using SEPOLIA_RPC_URL", CODE_BLOCKCHAIN_WRITE_FAILED
+        )
+        assert state.state == "failed"
+
+    def test_a_report_with_no_error_details_defaults_to_failed_not_blocked(self):
+        """An older report cannot be blocked on a guess; failing closed is the safe read."""
+        state = self._blockchain_state("environment variable is not set: SEPOLIA_RPC_URL")
+        assert state.state == "failed"
 
 
 class TestOverallState:
@@ -566,6 +715,13 @@ class TestOverallState:
                     "Failed to initialize Google Cloud Vision client. "
                     "Ensure GOOGLE_APPLICATION_CREDENTIALS is set."
                 ),
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_REVERSE_SEARCH,
+                        code=CODE_SEARCH_CONFIGURATION,
+                        message="provider not configured",
+                    )
+                ],
             ),
         )
         assert state.overall.state == "failed"
@@ -578,6 +734,13 @@ class TestOverallState:
             report=_report(
                 status="reverse_search_failed",
                 reverse_search_error="SERPAPI_API_KEY is required.",
+                error_details=[
+                    VerificationError(
+                        stage=STAGE_REVERSE_SEARCH,
+                        code=CODE_SEARCH_CONFIGURATION,
+                        message="no api key",
+                    )
+                ],
             ),
         )
         assert state.overall.state == "failed"

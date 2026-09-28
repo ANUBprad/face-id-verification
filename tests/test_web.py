@@ -1147,14 +1147,14 @@ class TestVerificationState:
         assert stages["Blockchain"]["state"] == "blocked"
 
     def test_missing_gcv_credentials_response_is_truthful(self):
-        from face_id_verification.reverse_search import ReverseSearchError
+        from face_id_verification.reverse_search import ReverseSearchConfigurationError
 
         def builder(**kwargs):
             pipeline = _success_pipeline()
             pipeline._blockchain_enabled = kwargs["blockchain_enabled"]
             pipeline._contract_address = kwargs["contract_address"]
             pipeline._reverse_searcher.search = MagicMock(
-                side_effect=ReverseSearchError(
+                side_effect=ReverseSearchConfigurationError(
                     "Failed to initialize Google Cloud Vision client. "
                     "Ensure GOOGLE_APPLICATION_CREDENTIALS is set or "
                     "Application Default Credentials are configured."
@@ -1189,14 +1189,14 @@ class TestVerificationState:
         )
 
     def test_missing_serpapi_key_response_is_blocked(self):
-        from face_id_verification.reverse_search import ReverseSearchError
+        from face_id_verification.reverse_search import ReverseSearchConfigurationError
 
         def builder(**kwargs):
             pipeline = _success_pipeline()
             pipeline._blockchain_enabled = kwargs["blockchain_enabled"]
             pipeline._contract_address = kwargs["contract_address"]
             pipeline._reverse_searcher.search = MagicMock(
-                side_effect=ReverseSearchError(
+                side_effect=ReverseSearchConfigurationError(
                     "SERPAPI_API_KEY is required "
                     "(set the SERPAPI_API_KEY environment variable)."
                 )

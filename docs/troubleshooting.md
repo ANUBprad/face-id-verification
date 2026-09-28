@@ -2,6 +2,29 @@
 
 Symptoms, causes, and fixes. The web interface reports one of `complete` / `failed` / `not_run` / `blocked` / `disabled` per stage, which tells you where to look.
 
+## Reading the machine-readable failures
+
+Every report carries an `error_details` list. Each entry has a `stage`, a stable `code`, and a `message`:
+
+- `stage` is one of `input`, `face_detection`, `reverse_search`, `metadata`, `blockchain`, `internal`.
+- `code` is the stable identifier to branch on. These are part of the public contract and will not change when wording changes.
+- `message` is for humans and may be reworded at any time. Do not parse it.
+
+| Stage | Codes |
+| --- | --- |
+| `input` | `image_rejected`, `invalid_image` |
+| `face_detection` | `no_face`, `multiple_faces`, `model_failure` |
+| `reverse_search` | `search_configuration`, `search_unavailable`, `search_failed` |
+| `metadata` | `metadata_failed` |
+| `blockchain` | `blockchain_configuration`, `blockchain_network`, `blockchain_write_failed`, `blockchain_reverted`, `blockchain_unconfirmed`, `blockchain_readback_failed` |
+| `internal` | `internal_error` |
+
+The web interface derives `blocked` from these codes, not from the message text. CLI exit codes come from the report `status`, so they are also independent of wording. The human-readable `errors` list and fields such as `reverse_search_error` and `blockchain_error` still exist and carry the same text; they are retained for compatibility.
+
+Credential-shaped fragments in a message are replaced with `[redacted]`, and file paths are never included, so a report can be shown to a user or logged without leaking an API key or a server-side temp path.
+
+Note that provider-side billing and account problems are only distinguishable from a generic provider failure when the provider itself signals it (SerpApi HTTP 401/403). Other provider wording is reported as `search_failed`.
+
 ## Reverse Image Search is **BLOCKED**
 
 Cause: the reverse-image stage cannot obtain provider credentials (or the provider is rejecting them). The detail message contains the underlying error.
@@ -11,7 +34,7 @@ For the **default SerpApi Google Lens** provider, BLOCKED means `SERPAPI_API_KEY
 - Set `SERPAPI_API_KEY` to a valid key (see `docs/setup/serpapi.md`).
 - A rate limit or a rejected request surfaces as **FAILED** with the underlying HTTP status, not BLOCKED.
 
-For the **legacy Google Cloud Vision** provider, BLOCKED means the stage cannot obtain credentials or the API/billing is unavailable (e.g., "could not automatically determine credentials", "invalid authentication credentials", "billing"):
+For the **legacy Google Cloud Vision** provider, BLOCKED means the stage cannot obtain credentials or the client cannot be initialized (e.g., "could not automatically determine credentials", "invalid authentication credentials"). A billing rejection reported by the API surfaces as **FAILED** unless the client fails to initialize:
 
 - Set `GOOGLE_APPLICATION_CREDENTIALS` to a valid service-account JSON, or run `gcloud auth application-default login` with the right project selected (see `docs/setup/gcp.md`).
 - Verify the Cloud Vision API is enabled: `gcloud services list --enabled | findstr vision` / `grep vision`.

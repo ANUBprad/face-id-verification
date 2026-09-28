@@ -20,6 +20,15 @@ from face_id_verification.face_detection import FaceAnalyzer
 from face_id_verification.pipeline import VerificationPipeline, VerificationReport
 from face_id_verification.reverse_search import _image_kind
 from face_id_verification.web.hosts import TrustedHostGuard, is_cross_site, is_trusted_origin
+from face_id_verification.web.ratelimit import (
+    DEFAULT_LIMIT,
+    DEFAULT_WINDOW_SECONDS,
+    RATE_LIMIT_ENV,
+    RATE_WINDOW_ENV,
+    TRUSTED_PROXY_HOSTS_ENV,
+    SlidingWindowRateLimiter,
+    client_identity,
+)
 from face_id_verification.web.state import build_verification_state
 
 logger = logging.getLogger(__name__)
@@ -31,6 +40,11 @@ DEFAULT_TIMEOUT = 30.0
 MAX_TIMEOUT = 300.0
 
 WRITE_TOKEN_ENV = "MUKHDAX_WEB_WRITE_TOKEN"
+
+RATE_LIMITED_DETAIL = (
+    "Too many verification requests. This service performs paid reverse-image searches, "
+    "so it limits how often one client may start a verification. Wait and try again."
+)
 
 # Deliberately identical for a missing, malformed, wrong, and unconfigured token so the
 # response is not an oracle for the state or the format of the server's secret.
@@ -190,9 +204,47 @@ def _package_version() -> str:
 PipelineBuilder = Callable[..., VerificationPipeline]
 
 
+def _build_rate_limiter() -> SlidingWindowRateLimiter:
+    """Read the admission limit from the environment, falling back to safe defaults.
+
+    A typo in the configuration must not stop the service from starting, and it must
+    never be able to disable the limit either, so anything unusable becomes the default.
+    """
+    raw_limit = os.environ.get(RATE_LIMIT_ENV, "").strip()
+    raw_window = os.environ.get(RATE_WINDOW_ENV, "").strip()
+    try:
+        limit = int(raw_limit) if raw_limit else DEFAULT_LIMIT
+    except ValueError:
+        logger.warning("Ignoring unparsable %s=%r", RATE_LIMIT_ENV, raw_limit)
+        limit = DEFAULT_LIMIT
+    try:
+        window = float(raw_window) if raw_window else DEFAULT_WINDOW_SECONDS
+    except ValueError:
+        logger.warning("Ignoring unparsable %s=%r", RATE_WINDOW_ENV, raw_window)
+        window = DEFAULT_WINDOW_SECONDS
+
+    try:
+        return SlidingWindowRateLimiter(limit=limit, window_seconds=window)
+    except ValueError:
+        logger.warning(
+            "Ignoring out-of-range %s=%r / %s=%r", RATE_LIMIT_ENV, raw_limit,
+            RATE_WINDOW_ENV, raw_window,
+        )
+        return SlidingWindowRateLimiter()
+
+
+def _trusted_proxies() -> frozenset[str]:
+    configured = os.environ.get(TRUSTED_PROXY_HOSTS_ENV, "")
+    return frozenset(part.strip() for part in configured.split(",") if part.strip())
+
+
 def create_app(
     pipeline_builder: PipelineBuilder = _default_pipeline_builder,
+    rate_limiter: SlidingWindowRateLimiter | None = None,
 ) -> FastAPI:
+    # The limiter belongs to the application instance, which is one per process for the
+    # shipped server: its budget is in-memory, resets on restart, and is not shared
+    # across worker processes.
     app = FastAPI(
         title="MukhdaX",
         version=_package_version(),
@@ -201,6 +253,7 @@ def create_app(
         openapi_url=None,
     )
     app.add_middleware(TrustedHostGuard)
+    limiter = rate_limiter if rate_limiter is not None else _build_rate_limiter()
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
@@ -259,6 +312,23 @@ def create_app(
                 detail="A contract address is required when blockchain recording is enabled.",
             )
         timeout_s = _parse_timeout(timeout)
+
+        # Checked before the pipeline exists, so a rejected caller never reaches
+        # InsightFace, SerpApi, the metadata crawl, or the chain.
+        decision = limiter.acquire(
+            client_identity(
+                request.client.host if request.client else None,
+                request.headers.get("x-forwarded-for"),
+                _trusted_proxies(),
+            )
+        )
+        if not decision.allowed:
+            logger.info("Verification refused: client is over its request limit")
+            raise HTTPException(
+                status_code=429,
+                detail=RATE_LIMITED_DETAIL,
+                headers={"Retry-After": str(decision.retry_after)},
+            )
 
         pipeline = pipeline_builder(
             blockchain_enabled=blockchain_enabled,

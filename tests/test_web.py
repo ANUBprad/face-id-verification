@@ -25,6 +25,7 @@ from face_id_verification.reverse_search import (
 )
 from face_id_verification.verification_hash import SCHEMA_ID
 from face_id_verification.web.app import create_app
+from face_id_verification.web.ratelimit import SlidingWindowRateLimiter
 
 TINY_PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
@@ -604,6 +605,85 @@ class TestBlockchainWriteOriginProtection:
         verify.assert_not_called()
         assert builder_calls == []
         _assert_no_temp_uploads()
+
+
+class TestVerifyRateLimit:
+    """An unbounded caller must not be able to trigger unlimited paid work."""
+
+    def _app(self, verify=None, limit=3, window=60.0):
+        def builder(**kwargs):
+            pipeline = _success_pipeline()
+            if verify is not None:
+                pipeline.verify = verify
+            return pipeline
+
+        return create_app(
+            pipeline_builder=builder,
+            rate_limiter=SlidingWindowRateLimiter(limit=limit, window_seconds=window),
+        )
+
+    def _post(self, client):
+        return client.post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+
+    def test_requests_within_the_limit_are_served(self):
+        client = _client(self._app())
+        for _ in range(3):
+            assert self._post(client).status_code == 200
+
+    def test_requests_beyond_the_limit_get_429(self):
+        client = _client(self._app())
+        for _ in range(3):
+            assert self._post(client).status_code == 200
+        response = self._post(client)
+        assert response.status_code == 429
+        assert "Too many verification requests" in response.json()["detail"]
+        assert int(response.headers["Retry-After"]) > 0
+
+    def test_rejected_request_never_reaches_the_pipeline(self):
+        verify = MagicMock(side_effect=RuntimeError("boom"))
+        client = _client(self._app(verify))
+        for _ in range(3):
+            assert self._post(client).status_code == 500
+        assert verify.call_count == 3
+        assert self._post(client).status_code == 429
+        assert verify.call_count == 3, "the refused request must not run the pipeline"
+        _assert_no_temp_uploads()
+
+    def test_refused_attempts_do_not_accumulate_extra_state(self):
+        client = _client(self._app(verify=MagicMock(side_effect=RuntimeError("unused"))))
+        for _ in range(3):
+            self._post(client)
+        for _ in range(5):
+            assert self._post(client).status_code == 429
+
+    def test_index_page_is_not_rate_limited(self):
+        client = _client(self._app(verify=MagicMock(side_effect=RuntimeError("unused"))))
+        for _ in range(3):
+            self._post(client)
+        assert self._post(client).status_code == 429
+        assert client.get("/").status_code == 200
+        assert client.get("/").status_code == 200
+
+    def test_blockchain_write_without_a_credential_is_refused_before_the_limiter(self):
+        """An unauthenticated caller must not be able to spend a legitimate client's budget."""
+        client = _client(self._app(limit=2))
+        for _ in range(2):
+            response = client.post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+            )
+            assert response.status_code == 403
+        # The budget is untouched, so a legitimate caller can still use it.
+        assert self._post(client).status_code == 200
+        assert self._post(client).status_code == 200
+        assert self._post(client).status_code == 429
 
 
 class TestTrustedHostHeader:

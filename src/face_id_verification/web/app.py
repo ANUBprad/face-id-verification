@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import tempfile
 from collections.abc import Callable
 from dataclasses import asdict
@@ -9,7 +10,7 @@ from importlib import metadata, resources
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from web3 import Web3
@@ -28,6 +29,15 @@ MIN_TIMEOUT = 1.0
 DEFAULT_TIMEOUT = 30.0
 MAX_TIMEOUT = 300.0
 
+WRITE_TOKEN_ENV = "MUKHDAX_WEB_WRITE_TOKEN"
+
+# Deliberately identical for a missing, malformed, wrong, and unconfigured token so the
+# response is not an oracle for the state or the format of the server's secret.
+WRITE_TOKEN_DETAIL = (
+    "Blockchain recording is not authorized for this request. Send "
+    f"'Authorization: Bearer <token>' carrying the server's {WRITE_TOKEN_ENV} secret."
+)
+
 _SHARED_FACE_ANALYZER = FaceAnalyzer()
 
 
@@ -43,6 +53,35 @@ def _save_upload(content: bytes) -> Path:
         except OSError:
             pass
         raise
+
+
+def _presented_write_token(request: Request) -> str | None:
+    """Extract the bearer credential from an Authorization header, if one was sent."""
+    authorization = request.headers.get("authorization", "")
+    scheme, _, credential = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    return credential.strip() or None
+
+
+def is_blockchain_write_authorized(request: Request) -> bool:
+    """Whether the caller may spend the operator key, ETH, and RPC quota on a write.
+
+    The credential is compared in constant time and is never logged, echoed, or
+    serialized, so a wrong guess reveals nothing about the configured secret.
+    """
+    expected = os.environ.get(WRITE_TOKEN_ENV)
+    presented = _presented_write_token(request)
+
+    if not expected:
+        logger.error(
+            "Blockchain write refused: %s is not configured on the server", WRITE_TOKEN_ENV
+        )
+        return False
+    if presented is None:
+        return False
+
+    return secrets.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))
 
 
 def _parse_boolean(value: str, field_name: str) -> bool:
@@ -151,6 +190,7 @@ def create_app(
 
     @app.post("/api/verify")
     async def verify_image(
+        request: Request,
         image: UploadFile | None = File(default=None),
         enable_blockchain: str = Form(default="false"),
         contract_address: str | None = Form(default=None),
@@ -175,6 +215,12 @@ def create_app(
             )
 
         blockchain_enabled = _parse_boolean(enable_blockchain, "enable_blockchain")
+
+        # Refuse before any paid or expensive work: no InsightFace inference, no SerpApi
+        # request, no metadata crawl, no RPC call, and no signing.
+        if blockchain_enabled and not is_blockchain_write_authorized(request):
+            raise HTTPException(status_code=403, detail=WRITE_TOKEN_DETAIL)
+
         resolved_contract = _validate_contract_address(contract_address)
         if blockchain_enabled and resolved_contract is None:
             raise HTTPException(

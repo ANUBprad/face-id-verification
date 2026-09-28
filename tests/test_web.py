@@ -85,6 +85,18 @@ def _blockchain_pipeline(**kwargs):
     return pipeline
 
 
+WRITE_TOKEN = "test-write-token-2f9c4b7e"
+
+
+@pytest.fixture(autouse=True)
+def _configured_write_token(monkeypatch):
+    monkeypatch.setenv("MUKHDAX_WEB_WRITE_TOKEN", WRITE_TOKEN)
+
+
+def _write_headers(token: str = WRITE_TOKEN) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
 @pytest.fixture
 def client():
     app = create_app(pipeline_builder=lambda **kwargs: _success_pipeline())
@@ -233,6 +245,7 @@ class TestInputValidation:
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
             data={"enable_blockchain": "true"},
+            headers=_write_headers(),
         )
         assert response.status_code == 400
         assert "contract address" in response.json()["detail"]
@@ -253,6 +266,179 @@ class TestInputValidation:
             data={"timeout": timeout_value},
         )
         assert response.status_code == 400
+
+
+class TestBlockchainWriteAuthorization:
+    """Only a caller holding the server's write credential may spend the operator key."""
+
+    def _post(self, client, headers=None, **data_overrides):
+        payload = {
+            "enable_blockchain": "true",
+            "contract_address": "0x0000000000000000000000000000000000000001",
+        }
+        payload.update(data_overrides)
+        return client.post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+            data=payload,
+            headers=headers,
+        )
+
+    def test_local_verification_needs_no_credential(self, client):
+        response = client.post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+        assert response.status_code == 200
+        assert response.json()["report"]["status"] == "success"
+        _assert_no_temp_uploads()
+
+    def test_blockchain_write_without_credential_rejected(self, client):
+        response = self._post(client)
+        assert response.status_code == 403
+        assert "not authorized" in response.json()["detail"]
+        _assert_no_temp_uploads()
+
+    def test_blockchain_write_with_wrong_credential_rejected(self, client):
+        response = self._post(client, headers={"Authorization": "Bearer not-the-token"})
+        assert response.status_code == 403
+
+    def test_blockchain_write_with_credential_admitted(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc123",
+            transaction_hash="0x" + "ab" * 32,
+            block_number=12345,
+            confirmed=True,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        with patch(
+            "face_id_verification.pipeline.record_verification",
+            return_value=record,
+        ):
+            response = TestClient(app).post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+                headers=_write_headers(),
+            )
+        assert response.status_code == 200, response.text
+        assert response.json()["report"]["blockchain"]["confirmed"] is True
+
+    def test_rejection_happens_before_the_pipeline_runs(self):
+        verify = MagicMock(side_effect=AssertionError("pipeline must not run"))
+        built = []
+
+        def builder(**kwargs):
+            built.append(kwargs)
+            pipeline = _success_pipeline()
+            pipeline.verify = verify
+            return pipeline
+
+        response = TestClient(create_app(pipeline_builder=builder)).post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+            data={
+                "enable_blockchain": "true",
+                "contract_address": "0x0000000000000000000000000000000000000001",
+            },
+        )
+        assert response.status_code == 403
+        verify.assert_not_called()
+        assert built == [], "no pipeline was built for an unauthorized write"
+        _assert_no_temp_uploads()
+
+    def test_rejection_precedes_contract_validation(self, client):
+        response = self._post(client, contract_address="not-an-address")
+        assert response.status_code == 403
+
+    def test_unconfigured_server_refuses_every_write(self, client, monkeypatch):
+        monkeypatch.delenv("MUKHDAX_WEB_WRITE_TOKEN", raising=False)
+        response = self._post(client, headers=_write_headers())
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize(
+        "header",
+        [
+            {"Authorization": WRITE_TOKEN},
+            {"Authorization": f"Basic {WRITE_TOKEN}"},
+            {"Authorization": "Bearer"},
+            {"Authorization": "Bearer "},
+            {"X-Api-Key": WRITE_TOKEN},
+        ],
+    )
+    def test_only_a_well_formed_bearer_header_is_accepted(self, client, header):
+        assert self._post(client, headers=header).status_code == 403
+
+    def test_credential_is_never_echoed(self, client):
+        wrong = "leaked-attempt-value"
+        response = self._post(
+            client, headers={"Authorization": f"Bearer {wrong}"}
+        )
+        assert response.status_code == 403
+        assert wrong not in response.text
+        assert WRITE_TOKEN not in response.text
+        assert "not-the-token" not in response.text
+
+    def test_credential_is_never_serialized_into_a_successful_report(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc123",
+            transaction_hash="0x" + "ab" * 32,
+            block_number=12345,
+            confirmed=True,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        with patch(
+            "face_id_verification.pipeline.record_verification",
+            return_value=record,
+        ):
+            response = TestClient(app).post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+                headers=_write_headers(),
+            )
+        assert response.status_code == 200
+        assert WRITE_TOKEN not in response.text
+        assert "MUKHDAX_WEB_WRITE_TOKEN" not in response.text
+
+    def test_credential_does_not_change_the_canonical_hash(self):
+        record = BlockchainRecord(
+            verification_hash="0xabc123",
+            transaction_hash="0x" + "ab" * 32,
+            block_number=12345,
+            confirmed=True,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        with patch(
+            "face_id_verification.pipeline.record_verification",
+            return_value=record,
+        ):
+            response = TestClient(app).post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+                headers=_write_headers(),
+            )
+        assert response.json()["report"]["verification_hash"].startswith("0x")
+        assert WRITE_TOKEN not in response.json()["report"]["verification_hash"]
 
 
 class TestBlockchainFlow:
@@ -277,6 +463,7 @@ class TestBlockchainFlow:
                     "enable_blockchain": "true",
                     "contract_address": "0x0000000000000000000000000000000000000001",
                 },
+                headers=_write_headers(),
             )
         assert response.status_code == 200, response.text
         chain = response.json()["report"]["blockchain"]
@@ -300,6 +487,7 @@ class TestBlockchainFlow:
                 "enable_blockchain": "true",
                 "contract_address": "0x0000000000000000000000000000000000000001",
             },
+            headers=_write_headers(),
         )
         assert response.status_code == 200
         assert captured == ["0x0000000000000000000000000000000000000001"]
@@ -340,6 +528,7 @@ class TestVerificationState:
                 "enable_blockchain": "true",
                 "contract_address": "0x0000000000000000000000000000000000000001",
             },
+            headers=_write_headers(),
         )
         assert response.status_code == 200
         verification = response.json()["verification"]
@@ -466,6 +655,7 @@ class TestVerificationState:
                     "enable_blockchain": "true",
                     "contract_address": "0x0000000000000000000000000000000000000001",
                 },
+                headers=_write_headers(),
             )
         assert response.status_code == 200
         verification = response.json()["verification"]
@@ -504,6 +694,7 @@ class TestVerificationState:
                     "enable_blockchain": "true",
                     "contract_address": "0x0000000000000000000000000000000000000001",
                 },
+                headers=_write_headers(),
             )
         assert response.status_code == 200
         verification = response.json()["verification"]
@@ -547,6 +738,7 @@ class TestVerificationState:
                     "enable_blockchain": "true",
                     "contract_address": "0x0000000000000000000000000000000000000001",
                 },
+                headers=_write_headers(),
             )
         assert response.status_code == 200
         verification = response.json()["verification"]
@@ -608,6 +800,7 @@ class TestVerificationState:
                     "enable_blockchain": "true",
                     "contract_address": "0x0000000000000000000000000000000000000001",
                 },
+                headers=_write_headers(),
             )
         assert response.status_code == 200
         verification = response.json()["verification"]

@@ -1,0 +1,3 @@
+# setuptools' sdist only picks up tests/test*.py by default, so the fixtures the
+# distributed test suite depends on would ship without tests/conftest.py.
+include tests/conftest.py

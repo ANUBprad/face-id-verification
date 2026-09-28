@@ -19,6 +19,7 @@ from face_id_verification.blockchain_recording import SEPOLIA_CHAIN_ID
 from face_id_verification.face_detection import FaceAnalyzer
 from face_id_verification.pipeline import VerificationPipeline, VerificationReport
 from face_id_verification.reverse_search import _image_kind
+from face_id_verification.web.hosts import is_cross_site, is_trusted_origin
 from face_id_verification.web.state import build_verification_state
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,13 @@ WRITE_TOKEN_ENV = "MUKHDAX_WEB_WRITE_TOKEN"
 WRITE_TOKEN_DETAIL = (
     "Blockchain recording is not authorized for this request. Send "
     f"'Authorization: Bearer <token>' carrying the server's {WRITE_TOKEN_ENV} secret."
+)
+
+# The presented origin is never reflected back into the response.
+UNTRUSTED_ORIGIN_DETAIL = (
+    "Blockchain recording was refused because the request did not come from a trusted "
+    "browser origin. This is not a substitute for the write credential: a trusted origin "
+    f"must still present the {WRITE_TOKEN_ENV} secret."
 )
 
 _SHARED_FACE_ANALYZER = FaceAnalyzer()
@@ -82,6 +90,24 @@ def is_blockchain_write_authorized(request: Request) -> bool:
         return False
 
     return secrets.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))
+
+
+def untrusted_browser_write(request: Request) -> bool:
+    """Whether a sensitive write arrived from a browser context that must not be trusted.
+
+    Browser metadata is judged only when it is actually present. A non-browser API client
+    sends neither header and is not treated as hostile here; it still has to present the
+    write credential, which is the actual authorization control.
+    """
+    site = request.headers.get("sec-fetch-site")
+    if site and is_cross_site(site):
+        return True
+
+    origin = request.headers.get("origin")
+    if origin and not is_trusted_origin(origin):
+        return True
+
+    return False
 
 
 def _parse_boolean(value: str, field_name: str) -> bool:
@@ -218,8 +244,12 @@ def create_app(
 
         # Refuse before any paid or expensive work: no InsightFace inference, no SerpApi
         # request, no metadata crawl, no RPC call, and no signing.
-        if blockchain_enabled and not is_blockchain_write_authorized(request):
-            raise HTTPException(status_code=403, detail=WRITE_TOKEN_DETAIL)
+        if blockchain_enabled:
+            if untrusted_browser_write(request):
+                logger.warning("Blockchain write refused: untrusted browser origin")
+                raise HTTPException(status_code=403, detail=UNTRUSTED_ORIGIN_DETAIL)
+            if not is_blockchain_write_authorized(request):
+                raise HTTPException(status_code=403, detail=WRITE_TOKEN_DETAIL)
 
         resolved_contract = _validate_contract_address(contract_address)
         if blockchain_enabled and resolved_contract is None:

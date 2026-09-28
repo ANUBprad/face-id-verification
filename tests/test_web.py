@@ -441,6 +441,162 @@ class TestBlockchainWriteAuthorization:
         assert WRITE_TOKEN not in response.json()["report"]["verification_hash"]
 
 
+class TestBlockchainWriteOriginProtection:
+    """Browser-originated writes are only accepted from an explicitly trusted origin."""
+
+    def _post(self, client, headers=None, **data_overrides):
+        payload = {
+            "enable_blockchain": "true",
+            "contract_address": "0x0000000000000000000000000000000000000001",
+        }
+        payload.update(data_overrides)
+        return client.post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+            data=payload,
+            headers=headers,
+        )
+
+    def test_hostile_origin_refused_even_with_valid_credential(self, client):
+        response = self._post(
+            client,
+            headers={**_write_headers(), "Origin": "https://attacker.example"},
+        )
+        assert response.status_code == 403
+        assert "trusted browser origin" in response.json()["detail"]
+
+    def test_cross_site_fetch_metadata_refused_even_with_valid_credential(self, client):
+        response = self._post(
+            client,
+            headers={**_write_headers(), "Sec-Fetch-Site": "cross-site"},
+        )
+        assert response.status_code == 403
+        assert "trusted browser origin" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://[::1]:8000",
+        ],
+    )
+    def test_trusted_same_origin_browser_write_allowed(self, client, origin):
+        app = create_app(
+            pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
+        )
+        record = BlockchainRecord(
+            verification_hash="0xabc123",
+            transaction_hash="0x" + "ab" * 32,
+            block_number=12345,
+            confirmed=True,
+            explorer_url="https://sepolia.etherscan.io/tx/0xabc",
+        )
+        with patch(
+            "face_id_verification.pipeline.record_verification",
+            return_value=record,
+        ):
+            response = TestClient(app).post(
+                "/api/verify",
+                files={"image": ("shot.png", TINY_PNG, "image/png")},
+                data={
+                    "enable_blockchain": "true",
+                    "contract_address": "0x0000000000000000000000000000000000000001",
+                },
+                headers={**_write_headers(), "Origin": origin},
+            )
+        assert response.status_code == 200, response.text
+        assert response.json()["report"]["blockchain"]["confirmed"] is True
+
+    def test_same_origin_fetch_metadata_allowed(self, client):
+        response = self._post(
+            client,
+            headers={
+                **_write_headers(),
+                "Origin": "http://localhost:8000",
+                "Sec-Fetch-Site": "same-origin",
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    def test_non_browser_request_without_origin_metadata_allowed(self, client):
+        response = self._post(client, headers=_write_headers())
+        assert response.status_code == 200, response.text
+
+    def test_opaque_origin_refused(self, client):
+        response = self._post(
+            client, headers={**_write_headers(), "Origin": "null"}
+        )
+        assert response.status_code == 403
+
+    def test_configured_origins_replace_the_defaults(self, client, monkeypatch):
+        monkeypatch.setenv("MUKHDAX_WEB_TRUSTED_ORIGINS", "https://ops.example")
+        assert self._post(
+            client,
+            headers={**_write_headers(), "Origin": "https://ops.example"},
+        ).status_code == 200
+        assert self._post(
+            client,
+            headers={**_write_headers(), "Origin": "http://localhost:8000"},
+        ).status_code == 403
+
+    def test_wrong_credential_refused_even_from_a_trusted_origin(self, client):
+        response = self._post(
+            client,
+            headers={
+                "Authorization": "Bearer wrong",
+                "Origin": "http://localhost:8000",
+                "Sec-Fetch-Site": "same-origin",
+            },
+        )
+        assert response.status_code == 403
+        assert "not authorized" in response.json()["detail"]
+
+    def test_wrong_credential_refused_from_a_hostile_origin(self, client):
+        response = self._post(
+            client,
+            headers={
+                "Authorization": "Bearer wrong",
+                "Origin": "https://attacker.example",
+            },
+        )
+        assert response.status_code == 403
+        assert "trusted browser origin" in response.json()["detail"]
+
+    def test_local_verification_ignores_browser_origin(self, client):
+        response = client.post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+            headers={"Origin": "https://attacker.example", "Sec-Fetch-Site": "cross-site"},
+        )
+        assert response.status_code == 200
+        assert response.json()["report"]["status"] == "success"
+
+    def test_rejected_write_never_reaches_the_pipeline(self):
+        verify = MagicMock(side_effect=AssertionError("pipeline must not run"))
+        builder_calls = []
+
+        def builder(**kwargs):
+            builder_calls.append(kwargs)
+            pipeline = _success_pipeline()
+            pipeline.verify = verify
+            return pipeline
+
+        response = TestClient(create_app(pipeline_builder=builder)).post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+            data={
+                "enable_blockchain": "true",
+                "contract_address": "0x0000000000000000000000000000000000000001",
+            },
+            headers={**_write_headers(), "Origin": "https://attacker.example"},
+        )
+        assert response.status_code == 403
+        verify.assert_not_called()
+        assert builder_calls == []
+        _assert_no_temp_uploads()
+
+
 class TestBlockchainFlow:
     def test_blockchain_record_serialized(self):
         record = BlockchainRecord(

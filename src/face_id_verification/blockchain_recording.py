@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import resources
 
@@ -18,6 +20,38 @@ SEPOLIA_EXPLORER_BASE = "https://sepolia.etherscan.io/tx"
 DEFAULT_GAS_LIMIT = 100_000
 DEPLOYMENT_GAS_MARGIN = 1.2  # headroom over the node's simulation; a fixed 100k limit cannot cover bytecode deposit
 MAX_DEPLOYMENT_GAS_LIMIT = 30_000_000
+
+# "latest" counts only mined transactions, so a just-broadcasted one is invisible and the
+# next write would reuse its nonce. "pending" includes the sender's mempool.
+NONCE_BLOCK = "pending"
+
+_NONCE_ALLOCATION_LOCK = threading.Lock()
+"""Serialises nonce allocation, signing, and broadcast across threads.
+
+MukhdaX signs with a single operator key, so one lock covers every writer. If several
+operator keys were ever supported, this would have to become one lock per account. It is
+a thread lock, not an asyncio lock, because this module is synchronous and is called from
+worker threads.
+"""
+
+
+def _sign_and_broadcast(
+    w3: Web3,
+    *,
+    from_address: str,
+    private_key: str,
+    build_tx: Callable[[int], dict],
+) -> bytes:
+    """Read a nonce, build, sign, and broadcast as one indivisible step.
+
+    The nonce is fetched inside the lock, so concurrent writers can never select the same
+    one, and the lock is released before any receipt is awaited: a receipt can take
+    seconds, and holding it would serialise confirmations as well as sends.
+    """
+    with _NONCE_ALLOCATION_LOCK:
+        nonce = w3.eth.get_transaction_count(from_address, NONCE_BLOCK)
+        signed_tx = w3.eth.account.sign_transaction(build_tx(nonce), private_key)
+        return w3.eth.send_raw_transaction(signed_tx.raw_transaction)
 
 
 class BlockchainError(Exception):
@@ -195,17 +229,23 @@ def deploy_contract(contract_address: str | None = None) -> DeploymentRecord:
     contract = w3.eth.contract(abi=compiled["abi"], bytecode=compiled["bytecode"])
 
     gas_limit = _estimate_deployment_gas(contract, account.address)
+    gas_price = w3.eth.gas_price
 
-    tx = contract.constructor().build_transaction({
-        "from": account.address,
-        "nonce": w3.eth.get_transaction_count(account.address),
-        "chainId": chain_id,
-        "gas": gas_limit,
-        "gasPrice": w3.eth.gas_price,
-    })
+    def build_tx(nonce: int) -> dict:
+        return contract.constructor().build_transaction({
+            "from": account.address,
+            "nonce": nonce,
+            "chainId": chain_id,
+            "gas": gas_limit,
+            "gasPrice": gas_price,
+        })
 
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key)
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    tx_hash = _sign_and_broadcast(
+        w3,
+        from_address=account.address,
+        private_key=private_key,
+        build_tx=build_tx,
+    )
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
 
     if receipt.status != 1:
@@ -253,16 +293,23 @@ def record_verification(contract_address: str, verification_hash: str) -> Blockc
 
     _assert_sufficient_balance(w3, account.address)
 
-    tx = contract.functions.recordVerification(verification_bytes32).build_transaction({
-        "from": account.address,
-        "nonce": w3.eth.get_transaction_count(account.address),
-        "chainId": chain_id,
-        "gas": DEFAULT_GAS_LIMIT,
-        "gasPrice": w3.eth.gas_price,
-    })
+    gas_price = w3.eth.gas_price
 
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key)
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    def build_tx(nonce: int) -> dict:
+        return contract.functions.recordVerification(verification_bytes32).build_transaction({
+            "from": account.address,
+            "nonce": nonce,
+            "chainId": chain_id,
+            "gas": DEFAULT_GAS_LIMIT,
+            "gasPrice": gas_price,
+        })
+
+    tx_hash = _sign_and_broadcast(
+        w3,
+        from_address=account.address,
+        private_key=private_key,
+        build_tx=build_tx,
+    )
     receipt: TxReceipt = w3.eth.wait_for_transaction_receipt(tx_hash)
 
     confirmed = receipt.status == 1

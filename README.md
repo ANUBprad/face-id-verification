@@ -11,7 +11,7 @@ It is a **verification pipeline**, not a facial-recognition or identity-matching
 ![python](https://img.shields.io/badge/python-3.10+-3766AB)
 ![version](https://img.shields.io/badge/version-0.1.0-222222)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-308%20passed%20%C2%B7%209%20skipped-brightgreen)
+![tests](https://img.shields.io/badge/tests-offline%20suite%20and%20marker%20contract%20documented%20below-success)
 ![network](https://img.shields.io/badge/network-ethereum%20Sepolia-5468ff)
 
 ---
@@ -50,9 +50,9 @@ flowchart TD
 
 Faces and images circulate far beyond their origin. MukhdaX binds a face-centered image to its public-web footprint and its on-chain record in a way that is:
 
-- **Reproducible** — the same evidence always yields the same fingerprint, because the canonical payload is serialized by an explicit, versioned rule instead of by accident. This is a guarantee about *serialization*, not about model inference — see [Limitations](#determinism-limitations).
+- **Reproducible** — the same canonical evidence object always yields the same verification hash, because the payload is serialized by an explicit, versioned rule instead of by accident. This is a guarantee about *serialization*, not about model inference — see [Limitations](#determinism-limitations).
 - **Honest** — nothing is hardcoded, faked, or silently replaced. Missing keys or a failed provider are reported as such.
-- **On-chain verifiable** — the fingerprint is recorded on a public testnet contract and read back independently, no credentials required.
+- **On-chain verifiable** — the verification hash is recorded on a public testnet contract and can be read back independently by anyone with an RPC endpoint; no private key is needed to look it up.
 - **Focused** — it combines face analysis, web discovery, and blockchain anchoring into one coherent provenance workflow.
 
 ## What MukhdaX is not
@@ -71,7 +71,7 @@ The output is a verifiable record of *the content analyzed*: which face was dete
 - **Genuine reverse-image discovery** — real SerpApi Google Lens calls; no hardcoded or predetermined results.
 - **Metadata extraction** — public source pages are parsed for canonical URL, title, description, images, dates, site name, content type, and platform.
 - **Versioned verification fingerprint** — SHA-256 for the image content and embedding; the final record hash is Keccak-256 over the versioned `mukhdax/v1` canonical evidence payload.
-- **Ethereum Sepolia anchoring** — real transactions; duplicate hashes rejected; read-only on-chain verification without a private key.
+- **Ethereum Sepolia anchoring** — real transactions; a duplicate hash is detected before a transaction is sent, so nothing is broadcast and no gas is spent; read-only on-chain verification without a private key.
 - **CLI + browser UI** — `face-id-verification` console command and a local FastAPI web interface drive the same pipeline.
 
 ## How it works
@@ -81,7 +81,7 @@ The output is a verifiable record of *the content analyzed*: which face was dete
 3. **Discover** — the image bytes are sent to SerpApi's `google_lens` search. Real matching pages come back and are normalized (deduplicated, etc.). An image with no matches is a valid "no match" result.
 4. **Extract** — each discovered page is fetched and parsed for standard, OpenGraph, and Twitter meta data; per-page errors are preserved, not hidden.
 5. **Fingerprint** — all evidence (image content hash, face representation, reverse-search results, metadata) is serialized to versioned `mukhdax/v1` canonical JSON and hashed with **Keccak-256**.
-6. **Anchor** — if blockchain recording is enabled and a contract address is provided, `recordVerification(bytes32)` is called on Sepolia; a real transaction is broadcast and its receipt must report `status == 1`.
+6. **Anchor** — if blockchain recording is enabled and a contract address is provided, the hash is first checked with `verificationExists`; if it is not already on-chain, `recordVerification(bytes32)` is called on Sepolia, a real transaction is broadcast, and its receipt must report `status == 1`. If the hash *is* already recorded, nothing is broadcast — the report carries `duplicate: true` and no transaction hash.
 7. **Verify** — the hash is read back with `verificationExists` / `getRecord` — independent, read-only, and private-key-free.
 8. **Report** — a structured JSON `VerificationReport` is printed to stdout and optionally written to `--output-dir/verification_report.json`.
 
@@ -122,7 +122,7 @@ These three are Google Cloud Vision concepts, not Lens ones. Deriving them from 
 
 Two further provider limits worth knowing:
 
-- The pipeline requests SerpApi's default `type=all`, which Google Lens defines as the **Visual Matches** tab only. The dedicated Exact Matches tab is a separate request that the pipeline does not make, so exact-match evidence comes from the per-result `exact_matches` flag rather than a second billable call.
+- The search request sends `engine=google_lens`, the uploaded `image_id`, and the API key. MukhdaX does **not** send a `type` parameter, so the response is whatever SerpApi returns by default for that engine — the **Visual Matches** view. The dedicated Exact Matches view is a separate request that the pipeline does not make, so exact-match evidence comes from the per-result `exact_matches` flag rather than a second billable call.
 - Lens returns related search queries (with Google search links). They are not pages containing the image, so they are not reported as matches.
 
 > Lens matches are **discovery evidence**: they show where an image publicly appears. They are not identity proof and not ownership proof.
@@ -139,10 +139,10 @@ HTTP failures are mapped explicitly (`401/403`, `404/410`, `429`, `5xx`, non-HTM
 
 ## Verification hash
 
-Three layers, deliberately different:
+Two layers, deliberately different:
 
 1. **Fingerprints (SHA-256)** — the raw image bytes are hashed with `hashlib.sha256` (`image_content_hash`); each face embedding similarly (`embedding_hash`). One-way digests; the image and embedding never appear raw in the report or on-chain.
-2. **Verification fingerprint (Keccak-256)** — the final record hash is `Web3.keccak` over the canonical JSON encoding of the evidence payload.
+2. **Verification hash (Keccak-256)** — the final record hash is `Web3.keccak` over the canonical JSON encoding of the evidence payload.
 
 ### Canonical schema `mukhdax/v1`
 
@@ -172,7 +172,9 @@ Because the counts are part of the fingerprint, a run whose provider reports exa
 
 ### Legacy records
 
-Records written before schema versioning used an unversioned algorithm. They are **not** rewritten and **not** invalidated: `compute_legacy_verification_hash()` still reproduces those digests exactly, so historical on-chain records remain interpretable. Reports label which algorithm produced a fingerprint via the `verification_schema` field (`mukhdax/v1` or `mukhdax/legacy-unversioned`).
+Records written before schema versioning were produced by the **same Keccak-256 digest** applied to an older, unversioned payload shape. The distinction is therefore the **payload shape**, not a different cryptographic algorithm: those digests are not rewritten and not invalidated, and `compute_legacy_verification_hash()` still reproduces them exactly, so historical on-chain records remain interpretable.
+
+The production pipeline emits `mukhdax/v1` and nothing else; the report's `verification_schema` field therefore reads `mukhdax/v1` for every run the pipeline performs. `mukhdax/legacy-unversioned` appears only when a caller deliberately builds a report from `compute_legacy_verification_hash()` (or passes the constant through), which is a compatibility path for historical digests, not a pipeline mode.
 
 The contract stores a bare `bytes32` and no schema tag, so a legacy record and a `mukhdax/v1` record are **indistinguishable from the chain alone** — the distinction lives in the report, not on-chain.
 
@@ -188,10 +190,12 @@ Canonical serialization is deterministic. **Model inference is not guaranteed to
 ## Blockchain
 
 - **Network** — Ethereum **Sepolia**, chain ID **11155111**, enforced on every connection.
-- **Contract** — [`VerificationRegistry.sol`](src/face_id_verification/contracts/VerificationRegistry.sol) (Solidity `^0.8.28`, bundled with the package).
+- **Contract** — [`VerificationRegistry.sol`](src/face_id_verification/contracts/VerificationRegistry.sol) (Solidity `^0.8.28`, bundled with the package, together with its compiled ABI).
 - **Stored on-chain** — only the verification hash, plus the recorder address and timestamp. **No** raw embeddings, no image bytes, no search results, no credentials ever reach the chain.
-- **Functions** — `recordVerification(bytes32)` (records a hash, rejects duplicates), `verificationExists(bytes32)`, and `getRecord(bytes32)` (returns `(recorder, timestamp, exists)`).
-- **Duplicate protection** — recording the same payload twice is detected *before* broadcasting (`verificationExists` check); the second attempt returns `duplicate=True` with no transaction hash and spends no gas.
+- **Functions** — `recordVerification(bytes32)` (records a hash), `verificationExists(bytes32)`, and `getRecord(bytes32)` (returns `(recorder, timestamp, exists)`).
+- **Duplicate protection** — two layers, and it is worth keeping them apart:
+  - *Client behaviour (what a MukhdaX run does).* Before broadcasting anything, `record_verification()` calls `verificationExists` for the hash. If it is already recorded, the call returns `duplicate=True` with `transaction_hash: null` and `block_number: null`: **no transaction is signed or sent, and MukhdaX spends no gas.** The run then continues to the read-back step, which re-reads the existing record and confirms it, so a repeated verification is reported as complete rather than as an error.
+  - *Contract-level protection (what the chain enforces).* `recordVerification` also carries `require(!records[verificationHash].exists, "Hash already recorded")`, so a duplicate submitted by any other client — including a future MukhdaX release — reverts on-chain instead of overwriting the original record.
 - **Real transactions** — when enabled, MukhdaX builds, signs, and broadcasts an actual Sepolia transaction and waits for a receipt; only `status == 1` counts as confirmed. The report carries the transaction hash, block number, and a `sepolia.etherscan.io` explorer link.
 
 ### Pre-deployed instance
@@ -333,10 +337,12 @@ Secrets are read from environment variables at runtime. Never commit real values
 | `SERPAPI_API_KEY` | reverse image search (default provider) | SerpApi Google Lens key; missing → stage reported **BLOCKED** |
 | `SEPOLIA_RPC_URL` | blockchain recording / read-back | HTTPS Sepolia RPC endpoint |
 | `SEPOLIA_PRIVATE_KEY` | blockchain recording / deployment | Sepolia-only test account funded with test ETH |
-| `GOOGLE_APPLICATION_CREDENTIALS` | *legacy* reverse-search provider only | Path to GCP service-account JSON for the optional `GoogleVisionSearcher` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | *legacy* reverse-search provider only | Path to GCP service-account JSON for the optional `GoogleVisionSearcher`. MukhdaX never reads this variable itself — the Google SDK resolves it. |
 | `SEPOLIA_CONTRACT_ADDRESS` | **test-suite only** | Optional: override of the integration-test deployment address |
 
 The web server's host/port are `FACE_ID_WEB_HOST` / `FACE_ID_WEB_PORT` (defaults `127.0.0.1:8000`). Copy [`.env.example`](.env.example) and fill what you need.
+
+**How those variables get loaded.** The CLI (`face-id-verification` or `python -m face_id_verification.cli`) and the web server (`python -m face_id_verification.web`) each call `load_local_config()` at startup. It prefers the `.env` next to the project root, falls back to a `.env` discovered by walking up from the current directory, and deliberately ignores a `.env` from an unrelated directory. Variables already set in the environment are never overwritten. Direct library use gets **none** of that: calling `VerificationPipeline().verify("photo.jpg")` yourself reads the **process environment only**, unless you call `load_local_config()` first.
 
 ### 4. Run — no credentials needed
 
@@ -408,7 +414,7 @@ $ face-id-verification --image sample.jpg --output-dir output \
 1. **Face detected** — one face located, bounding box + detection confidence in the report.
 2. **Google Lens discovery** — the image is genuinely searched; real matching public pages are returned.
 3. **Metadata extracted** — titles, platforms, and timestamps pulled from each reachable source page.
-4. **Verification fingerprint generated** — a `mukhdax/v1` Keccak-256 hash over the canonical evidence.
+4. **Verification hash generated** — a `mukhdax/v1` Keccak-256 hash over the canonical evidence.
 5. **Sepolia transaction submitted** — `recordVerification(bytes32)` broadcast for real.
 6. **Transaction confirmed** — receipt `status == 1`; report includes the transaction hash, block number, and an Etherscan explorer link.
 7. **On-chain verification** — the hash is read back with `verificationExists`/`getRecord` (read-only).
@@ -429,24 +435,32 @@ python -m pytest -q -m "not integration and not needs_model and not needs_solc"
 python -m pytest -q -ra
 ```
 
-A bare `python -m pytest -q` is **not** offline: it also runs the six
-`needs_model` tests (which load or download `buffalo_l`) and the three
-`needs_solc` tests (which need a local `solc` 0.8.28).
+A bare `python -m pytest -q` is **not** offline: it also runs the
+`needs_model` tests (which load or download `buffalo_l`) and the `needs_solc`
+tests (which need a local `solc` 0.8.28, i.e. `pip install -e ".[contract]"`
+plus the compiler binary itself). The canonical offline command above is what CI
+and the release checklist run; in a normal checkout it reports
+`869 passed, 24 deselected`.
 
 Tests that cross a real external boundary are marked, and unknown markers are a
 collection error:
 
-| Marker | Meaning | Test count |
+| Marker | Meaning | Tests in this release candidate |
 | --- | --- | --- |
 | `integration` | Reaches a real external service or chain | 12 |
 | `needs_model` | Initializes InsightFace / downloads `buffalo_l` | 6 |
 | `needs_network` | Contacts a remote host (e.g. `randomuser.me`, RPC) | 12 |
 | `needs_credentials` | Requires an API key, private key, or Application Default Credentials | 8 |
-| `needs_solc` | Requires a local `solc` 0.8.28 to compile the contract | 7 |
+| `needs_solc` | Requires a local `solc` 0.8.28 to compile the contract | 10 |
 
-Markers overlap: the Google Vision integration tests carry `integration`,
-`needs_network` and `needs_credentials`, and the face-analyzer integration
-tests additionally carry `needs_model`.
+The counts describe this release candidate (893 tests collected in total) and are
+a snapshot, not a contract — the marker column is the part to rely on. Markers
+overlap, so the counts sum to more than the total: the Google Vision integration
+tests carry `integration`, `needs_network` and `needs_credentials`, and the
+face-analyzer integration tests additionally carry `needs_model`. The
+`needs_solc` group is larger than the two deployment tests on purpose: it also
+holds the packaged-ABI parity check, so a change to `VerificationRegistry.sol`
+fails loudly instead of silently shipping a stale artifact.
 
 Running a single category:
 
@@ -484,19 +498,28 @@ The project deliberately keeps a **single flat package** — audited and deemed 
 src/face_id_verification/
 ├── cli.py                     # command-line interface (argparse, exit codes)
 ├── pipeline.py                # VerificationPipeline orchestration + VerificationReport
+├── config.py                  # load_local_config(): reads .env into the environment
+├── errors.py                  # shared exception hierarchy
 ├── face_detection.py          # InsightFace buffalo_l detection + 512-d embeddings
+├── image_limits.py            # decode policy: 6000×6000, 16 MP, 48 MB decoded RGB
 ├── reverse_search.py          # SerpApi Google Lens (default) + legacy GCV clients
-├── metadata_extraction.py     # HTTP fetch + OpenGraph/Twitter meta parsing
-├── verification_hash.py      # mukhdax/v1 canonical evidence schema + Keccak-256
-├── blockchain_recording.py    # Sepolia deployment, recording, on-chain verification
+├── metadata_extraction.py     # HTTP fetch + OpenGraph/Twitter meta parsing (SSRF-guarded)
+├── verification_hash.py       # mukhdax/v1 canonical evidence schema + Keccak-256
+├── blockchain_recording.py    # Sepolia deployment, recording, on-chain read-back
 ├── py.typed
 ├── contracts/
-│   └── VerificationRegistry.sol
+│   ├── VerificationRegistry.sol       # source of truth
+│   └── VerificationRegistry.abi.json  # packaged ABI — no solc needed to read/record
 └── web/
     ├── app.py                 # FastAPI app (browser UI + /api/verify)
     ├── state.py               # truthful per-stage state derivation
+    ├── hosts.py               # bind address + trusted Host/Origin handling
+    ├── ratelimit.py           # in-memory sliding-window limiter
+    ├── security.py            # security response headers (incl. CSP)
     ├── __main__.py            # uvicorn entry point
-    └── static/index.html
+    └── static/
+        ├── index.html
+        └── assets/            # built CSS/JS + branding
 
 tests/                         # unit/behavior tests + credential-gated integration tests
 docs/
@@ -508,17 +531,64 @@ docs/
 
 EXTERNAL_SETUP.md              # provider rationale, design, and failure philosophy
 pyproject.toml                 # package metadata, dependencies, pytest config
+MANIFEST.in                    # sdist contents (ships the test suite and .gitattributes)
 .env.example                   # supported environment variables (placeholders only)
 ```
 
 ## Security & privacy
 
-- Face detection and embedding run **locally** on CPU.
-- Blockchain payloads contain only the verification hash, recorder, and timestamp — **no** raw embeddings, no image bytes, and no credentials.
-- Secrets are read from environment variables at runtime; `.env` files are gitignored, and no secret-bearing files are tracked.
-- The web server is for **local/demo use**: no authentication, binds to localhost by default.
+MukhdaX is **local-first**: face analysis runs on your machine, and the only
+things that leave it are the ones the pipeline cannot do without.
 
-These are real protections, but absolute privacy is not claimed: reverse-search and metadata steps necessarily send an image/URL to external services, and on-chain data is public by design.
+### What actually leaves the machine
+
+| Data | Destination | Why |
+| --- | --- | --- |
+| Image bytes | **SerpApi** (Google Lens), always | A reverse image search is the product; the provider has to receive the image |
+| Image bytes | **Google Cloud Vision**, only if you select the legacy provider | Same reason, different engine |
+| `image_content_hash`, `embedding_hash`, geometry, matches, page metadata | **Ethereum Sepolia** | **Never** — only the final Keccak-256 `verification_hash` is written, and the contract cannot store more than a `bytes32` plus recorder and timestamp |
+| Search-result URLs | The sites themselves | MukhdaX fetches each matched page to extract its metadata; those sites see an ordinary crawler request |
+| The face embedding | **nowhere** | SCRFD + ArcFace run locally; the embedding is hashed and discarded |
+| The full report | your filesystem | Written to `output/verification_report.json`; it contains page URLs and metadata, so treat it as sensitive |
+
+A chain record is **public and permanent**. Anyone can read it, associate it with the recorder address, and correlate hashes across runs. A Sepolia write also costs real testnet ETH and consumes RPC quota.
+
+### Web service trust boundary
+
+- The server binds **loopback by default** (`127.0.0.1:8000`) and is not designed to be exposed to the public internet.
+- There is **no user authentication** — no accounts, no sessions, no login. Anyone who can reach the port can read the UI and submit verifications. The security headers, host allowlist, and rate limit reduce the blast radius; they are not identity.
+- One credential does exist: **`MUKHDAX_WEB_WRITE_TOKEN`**. A request that enables a blockchain write must present it as `Authorization: Bearer <token>`, so an unauthenticated visitor of the local UI can still run read-only verifications but cannot spend your test ETH. It is compared in constant time, is never logged or echoed, and is **not** in the shipped frontend bundle — so the browser form cannot supply it and a write must come from a client that holds the secret. If the variable is unset on the server, writes are refused outright. This is a single shared secret, not a per-user identity system.
+- Requests must claim a trusted `Host` (`MUKHDAX_WEB_ALLOWED_HOSTS`), and a browser-origin write must come from a trusted origin (`MUKHDAX_WEB_TRUSTED_ORIGINS`).
+- `X-Forwarded-For` is believed **only** when the immediate peer is listed in `MUKHDAX_WEB_TRUSTED_PROXY_HOSTS`.
+
+### Resource limits
+
+| Boundary | Limit | Where it is enforced |
+| --- | --- | --- |
+| Decoded image | 6000×6000, ≤ 16 MP, ≤ 48 MB decoded RGB | `image_limits.py`, before any model runs |
+| Web upload | 10 MB per request (compressed, as uploaded) | web only — the **CLI has no upload limit**; the decode limits above apply |
+| Metadata response | 5 MB per page, ≤ 5 redirects | `metadata_extraction.py` |
+| Metadata timeout | 5 s connect, 10 s read | `metadata_extraction.py` |
+| Web concurrency | 4 concurrent verifications, 5 s queue timeout | `web/app.py` |
+| Web rate limit | 10 requests / 60 s per client (configurable) | `web/ratelimit.py` |
+
+The metadata fetcher is an SSRF guard, not a general-purpose crawler: it refuses URLs with embedded credentials, loopback / private / link-local / reserved addresses (including the IPv4-mapped IPv6 equivalents) and `.localhost` names, resolves the hostname itself, then pins each connection to the address it validated while preserving the original `Host` header. Redirects are followed manually (≤ 5 hops, loop-detected, `http(s)` only), and every hop is re-validated at connect time — the check that has to hold is on the address actually dialled, not on the URL text.
+
+Response headers on every response, including errors: a strict CSP (`default-src 'self'`, `script-src 'self'`, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'self'`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a `Permissions-Policy` denying camera/geolocation/microphone/payment/USB, and same-origin opener/resource policies. Two honest caveats: `style-src` needs `'unsafe-inline'` because the frontend injects a `<style>` element at runtime, and HSTS is deliberately absent because the shipped server is plain HTTP on loopback.
+
+### Process-local state
+
+Three safeguards are **in-memory and per-process**, so they do not coordinate multiple workers or multiple instances:
+
+- the **rate limiter** (per client, in one process),
+- the **verification concurrency** semaphore (per process),
+- the **nonce lock** that keeps concurrent writers in one process from selecting the same transaction nonce.
+
+Running several web workers or several MukhdaX instances against one Sepolia account weakens the nonce guard: each process has its own view. Use one writer at a time, or separate funded accounts, if that matters to you.
+
+### What is not claimed
+
+These are real, working protections, not a guarantee of privacy: an external provider still receives the image; the chain record is public forever; and the shipped server has no authentication.
 
 ## Limitations
 

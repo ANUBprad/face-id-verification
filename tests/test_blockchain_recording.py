@@ -194,6 +194,54 @@ class TestNoCompilerIsReachableAtRuntime:
         assert source.count("import solcx") == 1
 
 
+class TestContractExtraIsOptional:
+    """py-solc-x is an extra, so its absence has to be an explanation, not a traceback."""
+
+    @pytest.fixture
+    def without_solcx(self, monkeypatch):
+        for name in list(sys.modules):
+            if name == "solcx" or name.startswith("solcx."):
+                monkeypatch.delitem(sys.modules, name, raising=False)
+        monkeypatch.setitem(sys.modules, "solcx", None)
+        return monkeypatch
+
+    def test_compile_contract_says_how_to_install_the_extra(self, without_solcx):
+        with pytest.raises(BlockchainConfigurationError) as excinfo:
+            compile_contract()
+        message = str(excinfo.value)
+        assert "contract" in message
+        assert "pip install" in message
+        assert "face-id-verification[contract]" in message
+
+    def test_the_failure_is_a_blockchain_error_not_a_bare_importerror(self, without_solcx):
+        with pytest.raises(BlockchainError):
+            compile_contract()
+
+    def test_deploy_surfaces_the_extra_instruction(self, without_solcx):
+        with _installed_w3() as w3:
+            w3.eth.get_code.return_value = b"\x60"
+            with pytest.raises(BlockchainConfigurationError, match="contract"):
+                deploy_contract()
+
+    def test_importing_the_module_does_not_pull_in_the_compiler(self):
+        """The compiler must not be imported just by importing the package."""
+        for name in list(sys.modules):
+            if name == "solcx" or name.startswith("solcx."):
+                del sys.modules[name]
+        import importlib
+
+        importlib.import_module("face_id_verification.blockchain_recording")
+        assert "solcx" not in sys.modules
+
+    def test_the_abi_is_readable_with_the_compiler_absent(self, without_solcx):
+        assert {entry.get("name") for entry in _packaged_abi()} == {
+            "VerificationRecorded",
+            "getRecord",
+            "recordVerification",
+            "verificationExists",
+        }
+
+
 class TestDeployStillCompiles:
     def test_deploy_compiles_rather_than_using_the_packaged_abi(self, monkeypatch):
         """Deployment needs bytecode, which is the one thing the artifact does not hold."""

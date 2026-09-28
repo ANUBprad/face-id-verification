@@ -51,7 +51,43 @@ def test_package_imports_without_pythonpath():
     assert result.returncode == 0, result.stderr
 
 
+class TestDeclaredExtras:
+    """An extra must exist for every capability the code conditionally imports."""
+
+    def _pyproject(self):
+        tomllib = pytest.importorskip("tomllib")
+        path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+
+    def test_py_solc_x_is_not_a_base_dependency(self):
+        data = self._pyproject()
+        base = data["project"]["dependencies"]
+        assert not any("solc" in requirement for requirement in base), (
+            "recording and read-back need only the packaged ABI, so a Solidity compiler "
+            "must not be pulled in by a base install"
+        )
+
+    def test_the_contract_extra_provides_the_compiler(self):
+        extras = self._pyproject()["project"]["optional-dependencies"]
+        assert "contract" in extras
+        assert any("solc" in requirement for requirement in extras["contract"])
+
+    def test_google_cloud_vision_stays_optional(self):
+        extras = self._pyproject()["project"]["optional-dependencies"]
+        assert "gcv" in extras
+        assert not any(
+            "google-cloud-vision" in requirement
+            for requirement in self._pyproject()["project"]["dependencies"]
+        )
+
+
 class TestPackageData:
+    def test_packaged_abi_is_shipped(self):
+        assert _is_packaged("contracts/VerificationRegistry.abi.json")
+
+    def test_py_typed_is_shipped(self):
+        assert _is_packaged("py.typed")
+
     def test_every_static_file_is_packaged(self):
         uncovered = [
             path.relative_to(PACKAGE_ROOT).as_posix()
@@ -76,6 +112,44 @@ class TestPackageData:
     def test_contract_source_is_packaged(self):
         assert (PACKAGE_ROOT / "contracts" / "VerificationRegistry.sol").is_file()
         assert _is_packaged("contracts/VerificationRegistry.sol")
+
+    def test_the_packaged_abi_loads_through_importlib_resources(self):
+        from face_id_verification.blockchain_recording import _packaged_abi
+
+        abi = _packaged_abi()
+        assert {entry.get("name") for entry in abi} == {
+            "VerificationRecorded",
+            "getRecord",
+            "recordVerification",
+            "verificationExists",
+        }
+
+    def test_the_packaged_abi_ships_no_bytecode(self):
+        from face_id_verification.blockchain_recording import _packaged_abi
+
+        assert not any("bytecode" in entry for entry in _packaged_abi())
+
+    def test_brand_and_web_app_assets_are_present_in_the_source_tree(self):
+        """Guards the defect where a wheel carried logos the source tree did not have.
+
+        The stale files entered the wheel through a leftover build/ directory, so the
+        reliable guard is that every asset the app serves exists in the tracked source.
+        """
+        static = PACKAGE_ROOT / "web" / "static"
+        assert (static / "index.html").is_file()
+        assert (static / "assets" / "favicon.svg").is_file()
+        branding = static / "assets" / "branding"
+        assert {path.name for path in branding.iterdir() if path.is_file()}
+
+    def test_no_brand_asset_exists_outside_the_branding_directory(self):
+        """Duplicate copies of a logo are how the stale wheel entries reappeared."""
+        static = PACKAGE_ROOT / "web" / "static"
+        loose = sorted(
+            path.name
+            for path in static.iterdir()
+            if path.is_file() and path.suffix == ".png"
+        )
+        assert loose == [], f"unexpected loose images in web/static: {loose}"
 
     def test_bundled_entrypoint_assets_are_packaged(self):
         for name in ("index.html", "assets/index-CpHkIvop.css", "assets/index-Dyd1sQyD.js"):

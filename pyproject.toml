@@ -17,7 +17,6 @@ dependencies = [
     "numpy>=1.24.0",
     "requests>=2.31.0",
     "web3>=8.0.0",
-    "py-solc-x>=2.0.0",
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
     "python-multipart>=0.0.9",
@@ -25,6 +24,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Contract deployment only. Recording a verification and reading it back need the packaged
+# ABI, so an ordinary install never needs a Solidity compiler.
+contract = ["py-solc-x>=2.0.0"]
 # Legacy Google Cloud Vision Web Detection provider. Not used by the default
 # SerpApi Google Lens path; the package imports without it.
 gcv = ["google-cloud-vision>=3.5.0"]

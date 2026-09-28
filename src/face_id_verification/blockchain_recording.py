@@ -226,7 +226,13 @@ def _packaged_abi() -> list[dict]:
 
 
 def compile_contract() -> dict:
-    import solcx
+    try:
+        import solcx
+    except ImportError as exc:
+        raise BlockchainConfigurationError(
+            "Compiling the contract needs the 'contract' extra, which is not installed. "
+            'Install it with: pip install "face-id-verification[contract]"'
+        ) from exc
 
     source = _contract_source()
 

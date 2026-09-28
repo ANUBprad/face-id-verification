@@ -113,6 +113,32 @@ class TestIsCrossSite:
         assert hosts.is_cross_site(value) is False
 
 
+class TestNormalizeHost:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("localhost", "localhost"),
+            ("LocalHost:8000", "localhost"),
+            ("  127.0.0.1:8000  ", "127.0.0.1"),
+            ("[::1]:8000", "[::1]"),
+            ("[::1]", "[::1]"),
+            ("::1", "[::1]"),
+            ("::1:8000", "[::1:8000]"),
+            ("verify.example.internal:8443", "verify.example.internal"),
+            ("", ""),
+        ],
+    )
+    def test_host_is_reduced_to_its_bare_form(self, raw, expected):
+        assert hosts.normalize_host(raw) == expected
+
+    def test_unterminated_ip_literal_never_matches(self):
+        assert hosts.normalize_host("[::1:8000") == ""
+
+    def test_bare_ipv6_is_not_mistaken_for_a_wildcard_bind(self):
+        assert hosts.normalize_host("::1") != hosts.normalize_host("::")
+        assert hosts.normalize_host("::") == "[::]"
+
+
 class TestBindAddress:
     def test_defaults_to_loopback(self, monkeypatch):
         monkeypatch.delenv(hosts.BIND_HOST_ENV, raising=False)

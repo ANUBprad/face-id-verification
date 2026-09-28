@@ -11,6 +11,10 @@ from __future__ import annotations
 import ipaddress
 import os
 
+from starlette.datastructures import Headers
+from starlette.responses import PlainTextResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
+
 BIND_HOST_ENV = "FACE_ID_WEB_HOST"
 BIND_PORT_ENV = "FACE_ID_WEB_PORT"
 TRUSTED_HOSTS_ENV = "MUKHDAX_WEB_ALLOWED_HOSTS"
@@ -50,6 +54,26 @@ def bind_address() -> str:
 
 def _comma_separated(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def normalize_host(value: str) -> str:
+    """Reduce a Host header (or a configured host) to its bare, lowercase host.
+
+    The port is dropped because it does not identify who reached the service, and an
+    IP-literal is kept bracketed so ``[::1]`` survives the split intact. Splitting on the
+    first colon without that care would turn ``[::1]:8000`` into ``[``.
+    """
+    candidate = value.strip()
+    if candidate.startswith("["):
+        closing = candidate.find("]")
+        if closing != -1:
+            return candidate[: closing + 1].lower()
+        return ""
+    if candidate.count(":") > 1:
+        # A port never contains a colon, so this is a bare IPv6 literal such as ::1 and
+        # must be kept whole rather than cut at the first colon.
+        return f"[{candidate.lower()}]"
+    return candidate.split(":", 1)[0].strip().lower()
 
 
 def _origin_host(host: str) -> str:
@@ -106,3 +130,30 @@ def is_trusted_origin(origin: str) -> bool:
 def is_cross_site(site: str) -> bool:
     """True when Sec-Fetch-Site marks the request as coming from another site."""
     return site.strip().lower() == "cross-site"
+
+
+class TrustedHostGuard:
+    """Refuse a request whose Host header names somewhere this deployment does not serve.
+
+    Validating the Host is what stops a remote page aimed at a developer's machine from
+    reaching the service, because such a request arrives with the attacker's hostname
+    rather than loopback.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        presented = Headers(scope=scope).get("host", "")
+        allowed = {normalize_host(host) for host in trusted_hosts()}
+
+        if normalize_host(presented) in allowed:
+            await self.app(scope, receive, send)
+            return
+
+        response = PlainTextResponse("Invalid host header", status_code=400)
+        await response(scope, receive, send)

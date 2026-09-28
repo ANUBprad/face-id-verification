@@ -97,10 +97,19 @@ def _write_headers(token: str = WRITE_TOKEN) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+# The test client must claim a Host this deployment legitimately serves; the default
+# httpx base_url would send "testserver", which the trusted-host guard rejects.
+TEST_BASE_URL = "http://localhost:8000"
+
+
+def _client(app) -> TestClient:
+    return TestClient(app, base_url=TEST_BASE_URL)
+
+
 @pytest.fixture
 def client():
     app = create_app(pipeline_builder=lambda **kwargs: _success_pipeline())
-    return TestClient(app)
+    return _client(app)
 
 
 def _assert_no_temp_uploads():
@@ -192,7 +201,7 @@ class TestVerifySuccess:
             return pipeline
 
         app = create_app(pipeline_builder=builder)
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )
@@ -318,7 +327,7 @@ class TestBlockchainWriteAuthorization:
             "face_id_verification.pipeline.record_verification",
             return_value=record,
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -340,7 +349,7 @@ class TestBlockchainWriteAuthorization:
             pipeline.verify = verify
             return pipeline
 
-        response = TestClient(create_app(pipeline_builder=builder)).post(
+        response = _client(create_app(pipeline_builder=builder)).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
             data={
@@ -400,7 +409,7 @@ class TestBlockchainWriteAuthorization:
             "face_id_verification.pipeline.record_verification",
             return_value=record,
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -428,7 +437,7 @@ class TestBlockchainWriteAuthorization:
             "face_id_verification.pipeline.record_verification",
             return_value=record,
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -496,7 +505,7 @@ class TestBlockchainWriteOriginProtection:
             "face_id_verification.pipeline.record_verification",
             return_value=record,
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -582,7 +591,7 @@ class TestBlockchainWriteOriginProtection:
             pipeline.verify = verify
             return pipeline
 
-        response = TestClient(create_app(pipeline_builder=builder)).post(
+        response = _client(create_app(pipeline_builder=builder)).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
             data={
@@ -595,6 +604,94 @@ class TestBlockchainWriteOriginProtection:
         verify.assert_not_called()
         assert builder_calls == []
         _assert_no_temp_uploads()
+
+
+class TestTrustedHostHeader:
+    """A request must claim a Host this deployment legitimately serves."""
+
+    def _client_for(self, base_url: str) -> TestClient:
+        app = create_app(pipeline_builder=lambda **kwargs: _success_pipeline())
+        return TestClient(app, base_url=base_url)
+
+    @pytest.mark.parametrize(
+        "host",
+        ["localhost", "127.0.0.1"],
+    )
+    def test_loopback_host_accepted(self, host):
+        response = self._client_for(f"http://{host}:8000").get("/")
+        assert response.status_code == 200
+
+    def test_ipv6_loopback_host_accepted(self):
+        response = self._client_for(TEST_BASE_URL).get("/", headers={"Host": "[::1]:8000"})
+        assert response.status_code == 200
+
+    def test_malformed_bracketed_host_rejected(self):
+        response = self._client_for(TEST_BASE_URL).get("/", headers={"Host": "[::1:8000"})
+        assert response.status_code == 400
+        assert response.text == "Invalid host header"
+
+    def test_localhost_without_port_accepted(self):
+        response = self._client_for("http://localhost").get("/")
+        assert response.status_code == 200
+
+    def test_arbitrary_port_still_accepted(self):
+        response = self._client_for("http://localhost:9999").get("/")
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "attacker.example",
+            "localhost.attacker.example",
+            "127.0.0.1.attacker.example",
+            "notlocalhost",
+            "192.168.1.10",
+        ],
+    )
+    def test_untrusted_host_rejected(self, host):
+        response = self._client_for(f"http://{host}:8000").get("/")
+        assert response.status_code == 400
+        assert response.text == "Invalid host header"
+
+    def test_untrusted_host_rejected_for_the_api(self):
+        app = create_app(pipeline_builder=lambda **kwargs: _success_pipeline())
+        response = TestClient(app, base_url="http://attacker.example").post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+        )
+        assert response.status_code == 400
+        assert "Invalid host header" in response.text
+
+    def test_untrusted_host_rejected_even_with_a_valid_credential(self):
+        verify = MagicMock(side_effect=AssertionError("pipeline must not run"))
+
+        def builder(**kwargs):
+            pipeline = _success_pipeline()
+            pipeline.verify = verify
+            return pipeline
+
+        app = create_app(pipeline_builder=builder)
+        response = TestClient(app, base_url="http://attacker.example").post(
+            "/api/verify",
+            files={"image": ("shot.png", TINY_PNG, "image/png")},
+            data={
+                "enable_blockchain": "true",
+                "contract_address": "0x0000000000000000000000000000000000000001",
+            },
+            headers=_write_headers(),
+        )
+        assert response.status_code == 400
+        verify.assert_not_called()
+
+    def test_configured_hosts_replace_the_defaults(self, monkeypatch):
+        monkeypatch.setenv("MUKHDAX_WEB_ALLOWED_HOSTS", "verify.example.internal")
+        assert self._client_for("http://verify.example.internal:8000").get("/").status_code == 200
+        assert self._client_for("http://localhost:8000").get("/").status_code == 400
+
+    def test_configured_host_with_port_is_normalized(self, monkeypatch):
+        monkeypatch.setenv("MUKHDAX_WEB_ALLOWED_HOSTS", "verify.example.internal:8443")
+        assert self._client_for("http://verify.example.internal:9000").get("/").status_code == 200
+        assert self._client_for("http://verify.example.internal").get("/").status_code == 200
 
 
 class TestBlockchainFlow:
@@ -612,7 +709,7 @@ class TestBlockchainFlow:
             "face_id_verification.pipeline.record_verification",
             return_value=record,
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -636,7 +733,7 @@ class TestBlockchainFlow:
             return _success_pipeline()
 
         app = create_app(pipeline_builder=builder)
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
             data={
@@ -677,7 +774,7 @@ class TestVerificationState:
             return pipeline
 
         app = create_app(pipeline_builder=builder)
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
             data={
@@ -715,7 +812,7 @@ class TestVerificationState:
             return pipeline
 
         app = create_app(pipeline_builder=builder)
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )
@@ -756,7 +853,7 @@ class TestVerificationState:
             return pipeline
 
         app = create_app(pipeline_builder=builder)
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )
@@ -804,7 +901,7 @@ class TestVerificationState:
                 return_value=readback,
             ),
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -843,7 +940,7 @@ class TestVerificationState:
                 side_effect=BlockchainError("RPC unavailable"),
             ),
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -887,7 +984,7 @@ class TestVerificationState:
                 return_value=readback,
             ),
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -906,7 +1003,7 @@ class TestVerificationState:
         app = create_app(
             pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
         )
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )
@@ -920,7 +1017,7 @@ class TestVerificationState:
         app = create_app(
             pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
         )
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )
@@ -933,7 +1030,7 @@ class TestVerificationState:
         app = create_app(
             pipeline_builder=lambda **kwargs: _blockchain_pipeline(**kwargs)
         )
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )
@@ -949,7 +1046,7 @@ class TestVerificationState:
             "face_id_verification.pipeline.record_verification",
             side_effect=RuntimeError("RPC endpoint unreachable"),
         ):
-            response = TestClient(app).post(
+            response = _client(app).post(
                 "/api/verify",
                 files={"image": ("shot.png", TINY_PNG, "image/png")},
                 data={
@@ -990,7 +1087,7 @@ class TestErrorHandling:
             return pipeline
 
         app = create_app(pipeline_builder=builder)
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )
@@ -1023,7 +1120,7 @@ class TestErrorHandling:
             return pipeline
 
         app = create_app(pipeline_builder=builder)
-        response = TestClient(app).post(
+        response = _client(app).post(
             "/api/verify",
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )

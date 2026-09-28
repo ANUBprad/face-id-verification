@@ -19,7 +19,7 @@ from face_id_verification.blockchain_recording import SEPOLIA_CHAIN_ID
 from face_id_verification.face_detection import FaceAnalyzer
 from face_id_verification.pipeline import VerificationPipeline, VerificationReport
 from face_id_verification.reverse_search import _image_kind
-from face_id_verification.web.hosts import is_cross_site, is_trusted_origin
+from face_id_verification.web.hosts import TrustedHostGuard, is_cross_site, is_trusted_origin
 from face_id_verification.web.state import build_verification_state
 
 logger = logging.getLogger(__name__)
@@ -200,6 +200,7 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    app.add_middleware(TrustedHostGuard)
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:

@@ -16,6 +16,7 @@ clean success.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 # Stages. One stage owns a failure end to end, from where it was raised to the state the
@@ -62,3 +63,21 @@ class VerificationError:
     stage: str
     code: str
     message: str
+
+
+# Library exception text is not a safe place for a URL: urllib3 quotes the full request
+# line, so an API key sent as a query parameter ends up in the message verbatim.
+_SECRET_QUERY = re.compile(
+    r"(?i)\b(api[_-]?key|apikey|access[_-]?token|token|secret|password|private[_-]?key)"
+    r"([=:]\s*|\"\s*:\s*\"?)([^\s&'\",}]+)"
+)
+# An RPC URL may carry basic-auth credentials, which providers then quote back in the
+# connection error they raise.
+_URL_USERINFO = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@")
+_REDACTED = "[redacted]"
+
+
+def redact_secrets(message: str) -> str:
+    """Strip credential-shaped substrings from text that will be shown to a caller."""
+    message = _URL_USERINFO.sub(rf"\1{_REDACTED}@", message)
+    return _SECRET_QUERY.sub(lambda m: f"{m.group(1)}{m.group(2)}{_REDACTED}", message)

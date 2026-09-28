@@ -38,11 +38,14 @@ class DetectedFace:
 
 
 def load_image(image_path: str | Path) -> NDArray[np.uint8]:
+    # The path is deliberately absent from every message below. On the web path it is a
+    # server-side temp file, and the report is returned to the client, so echoing it would
+    # disclose the server's filesystem layout. The caller knows which image it submitted.
     path = Path(image_path)
     if not path.exists():
-        raise ImageLoadError(f"Image path does not exist: {path}")
+        raise ImageLoadError("The image file does not exist.")
     if not path.is_file():
-        raise ImageLoadError(f"Image path is not a file: {path}")
+        raise ImageLoadError("The image path is not a regular file.")
 
     # Refuse an oversized image from its header, before imread allocates a buffer whose
     # size is chosen entirely by the untrusted dimensions inside the file.
@@ -50,7 +53,9 @@ def load_image(image_path: str | Path) -> NDArray[np.uint8]:
 
     img = cv2.imread(str(path))
     if img is None:
-        raise ImageLoadError(f"Failed to read image (unsupported format or corrupted): {path}")
+        raise ImageLoadError(
+            "The image could not be decoded (unsupported format or corrupted data)."
+        )
 
     # The decoder is a separate trust boundary from the header parser that just ran, so
     # the array it actually produced is checked as well.

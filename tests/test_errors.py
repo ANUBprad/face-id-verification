@@ -6,6 +6,8 @@ wording change can never silently move a failure into a different category.
 
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -34,6 +36,7 @@ from face_id_verification.errors import (
     CODE_MULTIPLE_FACES,
     CODE_NO_FACE,
     CODE_SEARCH_CONFIGURATION,
+    redact_secrets,
     CODE_SEARCH_FAILED,
     CODE_SEARCH_UNAVAILABLE,
     STAGE_BLOCKCHAIN,
@@ -378,3 +381,73 @@ class TestBlockchainCodes:
         assert report.status == "success"
         assert report.errors == []
         assert report.error_details == []
+
+class TestSecretsNeverReachTheReport:
+    """A library that quotes the request line back must not turn into a disclosure."""
+
+    @pytest.mark.parametrize(
+        "leaked",
+        [
+            "Max retries exceeded with url: /search.json?engine=google&api_key=SUPERSECRETKEY123",
+            "SerpApi image upload failed: HTTPSConnectionPool(host='serpapi.com') "
+            "?api_key=SUPERSECRETKEY123",
+            "ValueError({'message': 'unable to connect to wss://user:hunter2@rpc.example'})",
+        ],
+    )
+    def test_redaction_removes_the_secret_but_keeps_the_diagnosis(self, leaked):
+        redacted = redact_secrets(f"SerpApi image upload failed: {leaked}")
+        assert "SUPERSECRETKEY123" not in redacted
+        assert "hunter2" not in redacted
+        assert "SerpApi image upload failed" in redacted
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "SERPAPI_API_KEY is required (set the SERPAPI_API_KEY environment variable).",
+            "GOOGLE_APPLICATION_CREDENTIALS is required.",
+            "SEPOLIA_RPC_URL environment variable is not set",
+            "Transaction reverted on Sepolia: tx 0x" + "1" * 64,
+            "Too many pixels: 30000x30000.",
+        ],
+    )
+    def test_legitimate_diagnostics_are_left_alone(self, message):
+        assert redact_secrets(message) == message
+
+    def test_a_quoted_provider_key_does_not_survive_into_the_report(
+        self, sample_image, monkeypatch
+    ):
+        searcher = MagicMock()
+        searcher.search.side_effect = ReverseSearchError(
+            "SerpApi image upload failed: Connection aborted. "
+            "url: /search.json?engine=google&api_key=SUPERSECRETKEY123"
+        )
+        report = _pipeline([_face()], searcher=searcher).verify(sample_image)
+
+        assert "SUPERSECRETKEY123" not in json.dumps(asdict(report), default=str)
+        assert "api_key=[redacted]" in report.reverse_search_error
+        assert report.error_details[0].message == report.reverse_search_error
+
+    def test_a_quoted_rpc_credential_does_not_survive_into_the_report(
+        self, sample_image, monkeypatch
+    ):
+        import face_id_verification.pipeline as pipeline_module
+
+        def failing_record(*_args, **_kwargs):
+            raise BlockchainNetworkError(
+                "RPC endpoint rejected the request: wss://user:hunter2@rpc.example/sepolia"
+            )
+
+        monkeypatch.setattr(pipeline_module, "record_verification", failing_record)
+        searcher = MagicMock()
+        searcher.search.return_value = ReverseSearchResult(
+            [MatchingPage(url="https://example.com/a", page_title="A")], [], [], [], [], []
+        )
+        report = _pipeline(
+            [_face()],
+            searcher=searcher,
+            blockchain_enabled=True,
+            contract_address="0x" + "1" * 40,
+        ).verify(sample_image)
+
+        assert "hunter2" not in json.dumps(asdict(report), default=str)
+        assert "wss://[redacted]@rpc.example" in report.blockchain_error

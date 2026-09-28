@@ -41,6 +41,7 @@ from face_id_verification.errors import (
     STAGE_METADATA,
     STAGE_REVERSE_SEARCH,
     VerificationError,
+    redact_secrets,
 )
 from face_id_verification.face_detection import (
     FaceAnalyzer,
@@ -117,7 +118,8 @@ def image_content_hash(image_path: str | Path) -> str:
     try:
         data = path.read_bytes()
     except OSError as e:
-        raise ImageLoadError(f"Failed to read image bytes: {path}") from e
+        # The path stays out of the message: this text reaches the client in the report.
+        raise ImageLoadError("The image file could not be read.") from e
     return "0x" + hashlib.sha256(data).hexdigest()
 
 
@@ -147,6 +149,18 @@ def _duplicate_detail() -> VerificationError:
     )
 
 
+def _failure(
+    *, stage: str, code: str, message: str
+) -> tuple[str, VerificationError]:
+    """A human message and its machine classification, with credentials stripped.
+
+    Redaction happens once here, on the single path every report-level failure takes, so
+    no individual call site can leak a key that a library quoted back inside an error.
+    """
+    safe = redact_secrets(message)
+    return safe, VerificationError(stage=stage, code=code, message=safe)
+
+
 def _stopped_report(
     *,
     image_str: str,
@@ -160,6 +174,7 @@ def _stopped_report(
     Every later stage is absent by construction, which is what the caller needs to see:
     nothing was attempted after the failure and nothing was paid for.
     """
+    safe, detail = _failure(stage=stage, code=code, message=message)
     return VerificationReport(
         status=status,
         input_image=image_str,
@@ -171,8 +186,8 @@ def _stopped_report(
         blockchain=None,
         blockchain_error=None,
         verification_hash=None,
-        errors=[message],
-        error_details=[VerificationError(stage=stage, code=code, message=message)],
+        errors=[safe],
+        error_details=[detail],
     )
 
 
@@ -372,25 +387,27 @@ class VerificationPipeline:
             result = self._reverse_searcher.search(image_path)
             return result, None, None
         except ReverseSearchConfigurationError as e:
-            message = str(e)
-            return None, message, VerificationError(
-                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_CONFIGURATION, message=message
+            message, detail = _failure(
+                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_CONFIGURATION, message=str(e)
             )
+            return None, message, detail
         except ReverseSearchUnavailableError as e:
-            message = str(e)
-            return None, message, VerificationError(
-                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_UNAVAILABLE, message=message
+            message, detail = _failure(
+                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_UNAVAILABLE, message=str(e)
             )
+            return None, message, detail
         except ReverseSearchError as e:
-            message = str(e)
-            return None, message, VerificationError(
-                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_FAILED, message=message
+            message, detail = _failure(
+                stage=STAGE_REVERSE_SEARCH, code=CODE_SEARCH_FAILED, message=str(e)
             )
+            return None, message, detail
         except Exception as e:
-            message = f"Unexpected reverse search error: {e}"
-            return None, message, VerificationError(
-                stage=STAGE_INTERNAL, code=CODE_INTERNAL_ERROR, message=message
+            message, detail = _failure(
+                stage=STAGE_INTERNAL,
+                code=CODE_INTERNAL_ERROR,
+                message=f"Unexpected reverse search error: {e}",
             )
+            return None, message, detail
 
     def _extract_metadata(
         self, search_result: ReverseSearchResult | None
@@ -424,22 +441,24 @@ class VerificationPipeline:
                     content_type=meta.content_type,
                 ))
             except MetadataExtractionError as e:
-                errors.append(f"Metadata extraction failed for {url}: {e}")
+                reason = redact_secrets(str(e))
+                errors.append(f"Metadata extraction failed for {url}: {reason}")
                 results.append(MetadataResult(
                     source_url=url,
                     title=None,
                     description=None,
                     platform=None,
-                    error=str(e),
+                    error=reason,
                 ))
             except Exception as e:
-                errors.append(f"Unexpected metadata error for {url}: {e}")
+                reason = redact_secrets(f"Unexpected metadata error: {e}")
+                errors.append(f"Unexpected metadata error for {url}: {reason}")
                 results.append(MetadataResult(
                     source_url=url,
                     title=None,
                     description=None,
                     platform=None,
-                    error=str(e),
+                    error=reason,
                 ))
 
         return results, errors
@@ -511,22 +530,34 @@ class VerificationPipeline:
                 )
             return record, None, None
         except BlockchainConfigurationError as e:
-            return None, str(e), self._blockchain_detail(
-                CODE_BLOCKCHAIN_CONFIGURATION, str(e)
+            message, detail = _failure(
+                stage=STAGE_BLOCKCHAIN,
+                code=CODE_BLOCKCHAIN_CONFIGURATION,
+                message=str(e),
             )
+            return None, message, detail
         except BlockchainNetworkError as e:
-            return None, str(e), self._blockchain_detail(CODE_BLOCKCHAIN_NETWORK, str(e))
+            message, detail = _failure(
+                stage=STAGE_BLOCKCHAIN, code=CODE_BLOCKCHAIN_NETWORK, message=str(e)
+            )
+            return None, message, detail
         except BlockchainTransactionReverted as e:
-            return None, str(e), self._blockchain_detail(CODE_BLOCKCHAIN_REVERTED, str(e))
+            message, detail = _failure(
+                stage=STAGE_BLOCKCHAIN, code=CODE_BLOCKCHAIN_REVERTED, message=str(e)
+            )
+            return None, message, detail
         except BlockchainError as e:
-            return None, str(e), self._blockchain_detail(
-                CODE_BLOCKCHAIN_WRITE_FAILED, str(e)
+            message, detail = _failure(
+                stage=STAGE_BLOCKCHAIN, code=CODE_BLOCKCHAIN_WRITE_FAILED, message=str(e)
             )
+            return None, message, detail
         except Exception as e:
-            message = f"Unexpected blockchain error: {e}"
-            return None, message, VerificationError(
-                stage=STAGE_INTERNAL, code=CODE_INTERNAL_ERROR, message=message
+            message, detail = _failure(
+                stage=STAGE_INTERNAL,
+                code=CODE_INTERNAL_ERROR,
+                message=f"Unexpected blockchain error: {e}",
             )
+            return None, message, detail
 
     def _read_back_blockchain(
         self, verification_hash: str, record: BlockchainRecord | None
@@ -540,18 +571,17 @@ class VerificationPipeline:
         try:
             return read_back_verification(self._contract_address, verification_hash), None, None
         except BlockchainError as e:
-            return None, str(e), self._blockchain_detail(
-                CODE_BLOCKCHAIN_READBACK_FAILED, str(e)
+            message, detail = _failure(
+                stage=STAGE_BLOCKCHAIN, code=CODE_BLOCKCHAIN_READBACK_FAILED, message=str(e)
             )
+            return None, message, detail
         except Exception as e:
-            message = f"Unexpected on-chain read-back error: {e}"
-            return None, message, VerificationError(
-                stage=STAGE_INTERNAL, code=CODE_INTERNAL_ERROR, message=message
+            message, detail = _failure(
+                stage=STAGE_INTERNAL,
+                code=CODE_INTERNAL_ERROR,
+                message=f"Unexpected on-chain read-back error: {e}",
             )
-
-    @staticmethod
-    def _blockchain_detail(code: str, message: str) -> VerificationError:
-        return VerificationError(stage=STAGE_BLOCKCHAIN, code=code, message=message)
+            return None, message, detail
 
     def _determine_status(
         self,

@@ -10,6 +10,7 @@ from face_id_verification.face_detection import (
     EMBEDDING_DIMENSION,
     FaceAnalyzer,
     FaceDetectionError,
+    ImageLoadError,
     DetectedFace,
     load_image,
 )
@@ -41,15 +42,23 @@ class TestLoadImage:
             load_image("/nonexistent/path/image.jpg")
 
     def test_directory_not_file(self, tmp_path: Path):
-        with pytest.raises(FaceDetectionError, match="not a file"):
+        with pytest.raises(ImageLoadError, match="not a regular file"):
             load_image(tmp_path)
 
     def test_corrupted_image(self, tmp_path: Path):
         img_path = tmp_path / "corrupt.jpg"
         img_path.write_bytes(b"not an image")
 
-        with pytest.raises(FaceDetectionError, match="Failed to read"):
+        with pytest.raises(ImageLoadError, match="could not be decoded"):
             load_image(img_path)
+
+    def test_no_image_error_echoes_the_path_back(self, tmp_path: Path):
+        """The report is returned to the client, so a server temp path must not appear."""
+        missing = tmp_path / "very-secret-directory-name" / "face_id_upload_abc123.img"
+        with pytest.raises(ImageLoadError) as excinfo:
+            load_image(missing)
+        assert "very-secret-directory-name" not in str(excinfo.value)
+        assert "face_id_upload_abc123" not in str(excinfo.value)
 
 
 class TestDetectedFace:

@@ -13,7 +13,12 @@ import cv2
 import numpy as np
 import pytest
 
-from face_id_verification.face_detection import FaceAnalyzer, FaceDetectionError, load_image
+from face_id_verification.face_detection import (
+    FaceAnalyzer,
+    FaceDetectionError,
+    ImageLoadError,
+    load_image,
+)
 from face_id_verification.image_limits import (
     MAX_DECODED_BYTES,
     MAX_IMAGE_HEIGHT,
@@ -259,13 +264,13 @@ class TestLoadImage:
 
     def test_a_corrupt_image_keeps_its_original_error(self, tmp_path):
         path = write(tmp_path, b"\x89PNG\r\n\x1a\nnot really a png")
-        with pytest.raises(FaceDetectionError, match="Failed to read image"):
+        with pytest.raises(ImageLoadError, match="could not be decoded"):
             load_image(path)
 
-    def test_missing_and_non_file_paths_are_unchanged(self, tmp_path):
-        with pytest.raises(FaceDetectionError, match="does not exist"):
+    def test_missing_and_non_file_paths_are_still_reported_as_input_errors(self, tmp_path):
+        with pytest.raises(ImageLoadError, match="does not exist"):
             load_image(tmp_path / "nope.png")
-        with pytest.raises(FaceDetectionError, match="not a file"):
+        with pytest.raises(ImageLoadError, match="not a regular file"):
             load_image(tmp_path)
 
     def test_the_error_does_not_leak_a_filesystem_path(self, tmp_path, image_bomb):

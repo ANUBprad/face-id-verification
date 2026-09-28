@@ -646,6 +646,28 @@ class TestVerifyRateLimit:
             files={"image": ("shot.png", TINY_PNG, "image/png")},
         )
 
+    def test_a_rejected_image_does_not_consume_rate_budget(self, image_bomb):
+        """A request that is refused for its own sake must not spend the caller's budget.
+
+        The size gate is cheaper than the rate check and rejects the request outright, so
+        counting it would let invalid uploads consume the quota of a legitimate caller.
+        """
+        limiter = SlidingWindowRateLimiter(limit=1, window_seconds=60.0)
+        client = _client(
+            create_app(pipeline_builder=lambda **kwargs: _success_pipeline(), rate_limiter=limiter)
+        )
+
+        for _ in range(5):
+            response = client.post(
+                "/api/verify", files={"image": ("shot.png", image_bomb, "image/png")}
+            )
+            assert response.status_code == 413
+
+        # The single unit of budget is still available for a real request.
+        assert client.post(
+            "/api/verify", files={"image": ("shot.png", TINY_PNG, "image/png")}
+        ).status_code == 200
+
     def test_requests_within_the_limit_are_served(self):
         client = _client(self._app())
         for _ in range(3):

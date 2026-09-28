@@ -31,6 +31,7 @@ from face_id_verification.web.ratelimit import (
     SlidingWindowRateLimiter,
     client_identity,
 )
+from face_id_verification.web.security import SecurityHeaders
 from face_id_verification.web.state import build_verification_state
 
 logger = logging.getLogger(__name__)
@@ -292,6 +293,7 @@ def create_app(
         openapi_url=None,
     )
     app.add_middleware(TrustedHostGuard)
+    app.add_middleware(SecurityHeaders)
     limiter = rate_limiter if rate_limiter is not None else _build_rate_limiter()
     # Per application rather than per module: each process gets its own budget, and tests
     # that build separate apps cannot starve or leak each other's capacity.

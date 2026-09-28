@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,6 +27,33 @@ def _gcv_extra_installed() -> bool:
         return importlib.util.find_spec("google.cloud.vision") is not None
     except (ImportError, ValueError):
         return False
+
+
+class _FakeVisionImage:
+    def __init__(self, content: bytes):
+        self.content = content
+
+
+@pytest.fixture
+def gcv_sdk(monkeypatch):
+    """Substitute the optional google-cloud-vision SDK at its import boundary.
+
+    GoogleVisionSearcher builds its request with google.cloud.vision.Image, so the
+    tests that drive the request path need that name to resolve. The adapter,
+    the response mapping, and the error translation under test are the real
+    ones; only the third-party package is replaced, which keeps these unit tests
+    runnable without the optional [gcv] extra.
+    """
+    google = ModuleType("google")
+    cloud = ModuleType("google.cloud")
+    vision = ModuleType("google.cloud.vision")
+    vision.Image = _FakeVisionImage
+    cloud.vision = vision
+    google.cloud = cloud
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.cloud", cloud)
+    monkeypatch.setitem(sys.modules, "google.cloud.vision", vision)
+    return vision
 
 
 class TestLoadImageBytes:
@@ -261,7 +290,7 @@ class TestParseWebDetection:
 
 
 class TestGoogleVisionSearcher:
-    def test_search_calls_api(self, tmp_path: Path):
+    def test_search_calls_api(self, tmp_path: Path, gcv_sdk):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
 
@@ -284,8 +313,10 @@ class TestGoogleVisionSearcher:
 
         assert isinstance(result, ReverseSearchResult)
         mock_client.web_detection.assert_called_once()
+        sent_image = mock_client.web_detection.call_args.kwargs["image"]
+        assert sent_image.content == img_path.read_bytes()
 
-    def test_timeout_passed_to_api(self, tmp_path: Path):
+    def test_timeout_passed_to_api(self, tmp_path: Path, gcv_sdk):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
 
@@ -343,7 +374,7 @@ class TestGoogleVisionSearcher:
             with pytest.raises(ReverseSearchError, match="Failed to initialize"):
                 searcher.search(img_path)
 
-    def test_api_error_response(self, tmp_path: Path):
+    def test_api_error_response(self, tmp_path: Path, gcv_sdk):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
 
@@ -359,7 +390,7 @@ class TestGoogleVisionSearcher:
         with pytest.raises(ReverseSearchError, match="quota exceeded"):
             searcher.search(img_path)
 
-    def test_api_exception(self, tmp_path: Path):
+    def test_api_exception(self, tmp_path: Path, gcv_sdk):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"\xff\xd8\xff\xe0fake jpeg")
 

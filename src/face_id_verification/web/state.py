@@ -138,7 +138,7 @@ def _hash_stage(report: VerificationReport) -> StageState:
         return _stage(
             "Verification Hash",
             "complete",
-            "Deterministic fingerprint of the face representation, reverse-search results, and metadata.",
+            "Canonical evidence hash of the face representation, reverse-search results, and metadata.",
         )
     return _stage("Verification Hash", "not_run", "Not produced - verification did not complete.")
 

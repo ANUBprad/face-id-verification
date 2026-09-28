@@ -75,9 +75,25 @@ def _face_stage(report: VerificationReport) -> StageState:
     return _stage("Face Detection", "complete", "Exactly one face detected and embedded (512-d).")
 
 
+def _not_run_reason(report: VerificationReport) -> str:
+    """Name the real reason the later stages did not run, rather than a generic one.
+
+    A rejected image never reached detection at all, so saying detection "did not complete"
+    would misdescribe what happened.
+    """
+    return {
+        "image_rejected": "the image was rejected by the size policy",
+        "no_face_detected": "no face was detected",
+        "multiple_faces": "multiple faces were detected",
+        "face_detection_failed": "face detection failed",
+    }.get(report.status, "face detection did not complete")
+
+
 def _reverse_search_stage(report: VerificationReport, face_failed: bool) -> StageState:
     if face_failed:
-        return _stage("Reverse Image Search", "not_run", "Not run because face detection did not complete.")
+        return _stage(
+            "Reverse Image Search", "not_run", f"Not run because {_not_run_reason(report)}."
+        )
     if report.reverse_search_error:
         if _is_external_dependency_blocked(report.reverse_search_error):
             return _stage(
@@ -106,7 +122,7 @@ def _metadata_stage(
     report: VerificationReport, face_failed: bool, reverse: StageState
 ) -> StageState:
     if face_failed:
-        return _stage("Metadata", "not_run", "Not run because face detection did not complete.")
+        return _stage("Metadata", "not_run", f"Not run because {_not_run_reason(report)}.")
     if reverse.state in ("failed", "blocked"):
         reason = "did not complete" if reverse.state == "blocked" else "failed"
         return _stage("Metadata", "not_run", f"Not run because reverse image search {reason}.")

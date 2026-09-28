@@ -348,6 +348,27 @@ class TestMetadataStage:
         )
         metadata = _by_name(state, "Metadata")
         assert metadata.state == "not_run"
+        assert "multiple faces were detected" in metadata.detail
+
+    def test_not_run_when_the_image_was_rejected_before_detection_ran(self):
+        """The copy must not claim detection failed; it never ran."""
+        state = build_verification_state(
+            blockchain_enabled=False, report=_report(status="image_rejected", errors=["too big"])
+        )
+        reverse = _by_name(state, "Reverse Image Search")
+        metadata = _by_name(state, "Metadata")
+        assert reverse.state == "not_run"
+        assert "rejected by the size policy" in reverse.detail
+        assert "rejected by the size policy" in metadata.detail
+        for stage in (reverse, metadata):
+            assert "face detection did not complete" not in stage.detail
+
+    def test_a_detection_failure_still_says_so(self):
+        state = build_verification_state(
+            blockchain_enabled=False,
+            report=_report(status="face_detection_failed", errors=["model init failed"]),
+        )
+        assert "face detection failed" in _by_name(state, "Metadata").detail
 
 
 class TestHashStage:

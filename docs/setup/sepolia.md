@@ -66,6 +66,14 @@ print("balance:", w3.eth.get_balance(account.address))
 
 A zero balance makes the pipeline report blockchain as **BLOCKED** with an actionable "zero balance; fund it with Sepolia test ETH" message.
 
+## 5. Supply a contract address
+
+Credentials alone are not enough — recording needs the address of a deployed `VerificationRegistry`. There is **no `CONTRACT_ADDRESS` environment variable**: pass it per run with `--contract-address <ADDRESS>` (CLI) or the contract field in the web form, or deploy your own instance. A live address for demos and read-back checks is listed in [contract.md](contract.md).
+
+## 6. Confirm the variables are visible to the process
+
+The CLI and the web server call `load_local_config()` at startup, so exporting the variables in your shell works and a `.env` beside the project is picked up as well; a `.env` in an unrelated directory is deliberately ignored, and variables already set in the environment are never overwritten. Library code that constructs `VerificationPipeline` itself gets the process environment only.
+
 ## Security notes
 
 - Keep the private key in the environment only; never commit it, and never name it in source.

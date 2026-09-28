@@ -12,11 +12,13 @@ This document explains the external services the pipeline depends on, why they w
 
 | Service | Used for | Requires | Fails gracefully as |
 |---|---|---|---|
-| SerpApi Google Lens | genuine reverse-image discovery (default) | `SERPAPI_API_KEY` | `reverse_image_search` → **BLOCKED** |
-| Google Cloud Vision Web Detection (legacy) | optional reverse-image discovery | ADC + enabled, billable project | `reverse_image_search` → **BLOCKED** |
+| SerpApi Google Lens | genuine reverse-image discovery (default) | `SERPAPI_API_KEY` | `reverse_search` → **BLOCKED** |
+| Google Cloud Vision Web Detection (legacy) | optional reverse-image discovery | ADC + enabled, billable project | `reverse_search` → **BLOCKED** |
 | Public web pages | metadata extraction | an HTTP-reachable page | `metadata` → **NOT RUN** or error |
 | Sepolia JSON-RPC endpoint | on-chain recording & lookups | any Sepolia RPC provider | `blockchain` → **BLOCKED** when env vars missing |
 | Sepolia faucet | test ETH for gas | a testnet wallet | blockchain → **BLOCKED** ("zero balance") |
+
+The stage names above are the `stage` values in a report's `error_details` list. The full state vocabulary (`complete` / `failed` / `not_run` / `blocked` / `disabled` / `pending`) and how it maps to CLI exit codes is documented in [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Why SerpApi Google Lens for reverse image discovery
 
@@ -70,6 +72,10 @@ On-chain data is limited to the hash, the recorder address, and the timestamp. T
 
 Read-only verification (`verificationExists`, `getRecord`) requires only `SEPOLIA_RPC_URL` — no private key.
 
+The duplicate behaviour has two layers worth keeping apart. The contract reverts on a duplicate, but a MukhdaX run never reaches that revert: `record_verification()` checks `verificationExists` first and, if the hash is already recorded, returns `duplicate: true` with no transaction hash — nothing is broadcast, no gas is spent, and the run proceeds to read the existing record back. The on-chain `require` is the backstop for any other client.
+
+Nonce allocation is guarded by a `threading.Lock` inside one process, so concurrent writers in that process cannot pick the same nonce. It is not a distributed lock: two MukhdaX processes or two web workers sharing one signer key each keep their own view, so run a single writer against a given account.
+
 ## Hashing: what is hashed and why
 
 1. **Fingerprints (SHA-256)** — `image_content_hash` and `embedding_hash` make the report tamper-evident without exposing the embedding itself.
@@ -78,7 +84,7 @@ Read-only verification (`verificationExists`, `getRecord`) requires only `SEPOLI
 Two caveats worth stating plainly:
 
 - This is a guarantee about **serialization**, not about model inference. The `embedding_hash` derives from an ArcFace/ONNX Runtime embedding, which is not guaranteed bit-identical across library versions or CPU architectures, so a recomputation on a different machine may legitimately differ.
-- Records created before schema versioning used an unversioned algorithm. They remain valid and are reproduced by `compute_legacy_verification_hash()`. Because the contract stores a bare `bytes32`, the schema is recorded in the report (`verification_schema`), not on-chain.
+- Records created before schema versioning were produced by the **same Keccak-256 digest** over an older, unversioned payload shape, so the difference is the payload shape rather than a different algorithm. They remain valid and are reproduced exactly by `compute_legacy_verification_hash()`. Because the contract stores a bare `bytes32`, the schema is recorded in the report (`verification_schema`), not on-chain.
 
 ## Failure philosophy
 
@@ -91,14 +97,16 @@ Every stage reports reality:
 | `not_run` | Skipped because a prerequisite stage did not complete |
 | `blocked` | External dependency unavailable (credentials/billing) |
 | `disabled` | Stage turned off for this run (blockchain without enable toggle) |
+| `pending` | Transaction broadcast, receipt not yet confirmed |
 
-A run with no external credentials still completes all local stages and produces a structured report; the external stages are labeled **BLOCKED** / **DISABLED**, never faked.
+A run with no external credentials still completes all local stages and produces a structured report; the external stages are labeled **BLOCKED** / **DISABLED**, never faked. A *result* the pipeline actually produced is never reported as `blocked` — an already-recorded hash, for example, is a successful verification, not a blocked stage.
 
 ## Security
 
-- Secrets are read from environment variables at runtime; `.env` files are gitignored and never committed.
+- Secrets are read from environment variables at runtime; `.env` files are gitignored and never committed. The CLI and web server call `load_local_config()` to pick one up; direct library use reads the process environment only.
 - The contract stores hashes only; no personal data, keys, or credentials.
 - Testnet keys should be testnet-only and hold no real value.
+- Sending an image to a third-party provider is inherent to reverse-image search, and a public chain record is permanent and world-readable. The full data-flow table, the web trust boundary (loopback by default, no user authentication, `MUKHDAX_WEB_WRITE_TOKEN` guarding writes), the resource limits, the metadata SSRF protections, the security headers, and the process-local caveats are documented in the README's [Security & privacy](README.md#security--privacy) section rather than duplicated here.
 
 ## Known limitations
 

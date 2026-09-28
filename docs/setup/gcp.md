@@ -4,6 +4,8 @@
 
 Enables the **Reverse Image Search** stage via the legacy provider: `ImageAnnotatorClient.web_detection` finds public pages where the input image (or a visually similar one) appears.
 
+Note that this provider is **not** selected by an environment variable or a CLI flag. The pipeline defaults to SerpApi, and the legacy client is injected in code — see [Using the legacy provider](#using-the-legacy-provider) below once the credentials are in place.
+
 ## Prerequisites
 
 - A Google Cloud project.
@@ -74,6 +76,25 @@ python -m pytest "tests/test_reverse_search_integration.py" -m integration -q
 If the API is enabled and ADC resolves, the test performs a real `web_detection` request. If anything is misconfigured, the test fails or the pipeline reports the Reverse Image Search stage as **BLOCKED** with an authentication/billing message.
 
 > This test targets the legacy `GoogleVisionSearcher` directly. The default pipeline provider is SerpApi Google Lens and is tested via `tests/test_serpapi_integration.py`.
+
+## Using the legacy provider
+
+The provider is a constructor argument, so a normal CLI or web run will not switch to it by itself. Pass the searcher explicitly:
+
+```python
+from face_id_verification.pipeline import VerificationPipeline
+from face_id_verification.reverse_search import GoogleVisionSearcher
+
+report = VerificationPipeline(reverse_searcher=GoogleVisionSearcher()).verify("sample.jpg")
+print(report.status, report.verification_hash)
+```
+
+Two consequences worth knowing:
+
+- The client is constructed lazily, so a missing `gcv` extra or unresolvable credentials surfaces as a **BLOCKED** reverse-search stage instead of an import error at program start.
+- Anything this provider returns is fed into the same canonical `mukhdax/v1` evidence schema, so a GCV run and a SerpApi run of the same image produce different verification hashes — the evidence genuinely differs, because this provider populates `partial_matching_images`, `web_entities`, and `best_guess_labels` while SerpApi does not.
+
+To use it for every CLI run, build the same pipeline object in your own entry point; the shipped `face-id-verification` command stays on the SerpApi default.
 
 ## What you should NOT do
 

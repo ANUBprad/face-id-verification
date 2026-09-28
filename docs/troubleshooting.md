@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Symptoms, causes, and fixes. The web interface reports one of `complete` / `failed` / `not_run` / `blocked` / `disabled` per stage, which tells you where to look.
+Symptoms, causes, and fixes. The web interface reports one of `complete` / `failed` / `not_run` / `blocked` / `disabled` / `pending` per stage, which tells you where to look. `blocked` means a required configuration is missing, `disabled` means the stage was switched off, and neither of those is ever used for a result the pipeline actually produced.
 
 ## Deploying fails with a `contract` extra message
 
@@ -34,7 +34,7 @@ Every report carries an `error_details` list. Each entry has a `stage`, a stable
 
 The web interface derives `blocked` from these codes, not from the message text. CLI exit codes come from the report `status`, so they are also independent of wording. The human-readable `errors` list and fields such as `reverse_search_error` and `blockchain_error` still exist and carry the same text; they are retained for compatibility.
 
-Credential-shaped fragments in a message are replaced with `[redacted]`, and file paths are never included, so a report can be shown to a user or logged without leaking an API key or a server-side temp path.
+Credential-shaped substrings in a report `message` are replaced with `[redacted]` — key/token/secret assignments and credentials embedded in a URL. Pipeline-reported errors do not carry local file paths, so a report can be shown to a user or logged without leaking an API key. One deliberate exception: the CLI's own startup errors (a missing image, an unwritable `--output-dir`) echo the path you passed on the command line, because that is your argument on your terminal rather than a server-side path.
 
 Note that provider-side billing and account problems are only distinguishable from a generic provider failure when the provider itself signals it (SerpApi HTTP 401/403). Other provider wording is reported as `search_failed`.
 
@@ -58,7 +58,7 @@ Note: BLOCKED is the correct, honest behavior — reverse image search is never 
 
 ## Blockchain stage is **BLOCKED** with "environment variable is not set"
 
-`SEPOLIA_RPC_URL` and/or `SEPOLIA_PRIVATE_KEY` are missing. Export them (see `docs/setup/sepolia.md`). Remember there is no `CONTRACT_ADDRESS` env var — the address is supplied per run via `--contract-address` or the web field.
+`SEPOLIA_RPC_URL` and/or `SEPOLIA_PRIVATE_KEY` are missing. Export them (see `docs/setup/sepolia.md`). Remember there is no `CONTRACT_ADDRESS` env var — the address is supplied per run via `--contract-address` or the web field. (`SEPOLIA_CONTRACT_ADDRESS` exists too, but the **test suite** reads it to locate its own deployment; the pipeline never does.)
 
 ## Blockchain stage is **BLOCKED** with "zero balance"
 
@@ -72,9 +72,18 @@ account = w3.eth.account.from_key(os.environ["SEPOLIA_PRIVATE_KEY"])
 print(w3.eth.get_balance(account.address))
 ```
 
-## Blockchain stage is **BLOCKED** with a duplicate message
+## "duplicate": true in the report, or "Already recorded on-chain previously"
 
-The same verification payload was already recorded on-chain; re-running produces the `duplicate` result and no new transaction. This is by design (`verificationExists` guard in `VerificationRegistry.recordVerification`).
+This is expected and it is **not** an error, so the stage is not BLOCKED.
+
+`record_verification()` calls `verificationExists` before it signs anything. If the hash is already on-chain it returns immediately with `duplicate: true`, `transaction_hash: null`, and `block_number: null` — nothing is broadcast and no gas is spent. The report status stays `success` and the CLI exits `0`.
+
+There are two supporting layers behind it:
+
+- The **read-back** step then re-reads the existing record, so the run reports the record as verified rather than merely "assumed present".
+- The **contract** independently carries `require(!records[verificationHash].exists, "Hash already recorded")`, so a duplicate submitted by any other client reverts instead of overwriting the original.
+
+The one case that *is* a failure: if a pre-existing record is found but read-back cannot confirm it, the report carries the `blockchain_unconfirmed` error, the status becomes `blockchain_failed` (CLI exit `5`), and the web stage shows **failed**. `duplicate: true` alone is never treated as proof that the record is really there.
 
 ## CLI exits with code `5` on startup
 
@@ -82,7 +91,14 @@ Running `face-id-verification --image <path>` without `--skip-blockchain` and wi
 
 ## CLI reports "Image file not found" / usage error (code `1`)
 
-The image path does not exist. Pass a valid path; the image must be JPG, PNG, or WebP under 10 MB.
+The image path does not exist. The accepted formats are JPG, PNG, and WebP.
+
+Size limits differ by entry point, which is the usual source of confusion here:
+
+- **CLI** — no upload cap. What is enforced is the decode policy: at most 6000×6000 pixels, at most 16 megapixels, and at most 48 MB of decoded RGB.
+- **Web interface** — a 10 MB cap on the uploaded request body, rejected before the pipeline runs. This is an upload limit, not an image-format rule.
+
+Exceeding either limit yields `image_rejected` with the `input` stage.
 
 ## Face Detection **FAILED** with "No face found" / "Multiple faces found"
 
@@ -105,7 +121,7 @@ Tests that reach a real external boundary skip automatically and say why:
 - `tests/test_sepolia_integration.py` skips without `SEPOLIA_RPC_URL`; the two tests that submit real transactions additionally need `SEPOLIA_PRIVATE_KEY` and `MUKHDAX_TEST_LIVE_WRITES=1`.
 - `tests/test_serpapi_integration.py` skips without `SERPAPI_API_KEY`.
 - `TestFaceAnalyzerIntegration` skips without `MUKHDAX_TEST_ALLOW_DOWNLOADS=1`, because its fixtures download portraits from `randomuser.me`.
-- `TestCompileContract` and `TestPackagedAbiMatchesTheCompiler` need a local `solc` 0.8.28 and are marked `needs_solc`. Install it with `pip install ".[contract]"` followed by `python -m solcx.install 0.8.28`.
+- Every `needs_solc` test needs a local `solc` 0.8.28 and is marked accordingly. They live in three classes in `tests/test_blockchain_recording.py`: `TestCompileContract` (compilation succeeds and the ABI is as expected), `TestPackagedAbiMatchesTheCompiler` (the checked-in artifact has not drifted), and `TestDeployContractGasEstimation` (gas comes from an estimate, a reverted receipt fails, deployed code must exist). Install the extra, then the compiler: `pip install ".[contract]"` followed by `python -m solcx.install 0.8.28`.
 
 This is expected on a machine without those secrets or tools. Run the offline suite:
 
@@ -114,9 +130,11 @@ python -m pytest -q -m "not integration and not needs_model and not needs_solc"
 ```
 
 A bare `python -m pytest -q` is **not** a substitute for either command: with no
-`-m` filter it also runs the six tests that load InsightFace and the tests that
-compile the contract, so it can trigger a ~300 MB model download or fail on a
-machine with no `solc` installed. `-m "not integration"` has the same problem.
+`-m` filter it also runs the `needs_model` tests, which load or download a
+~300 MB InsightFace model, and the `needs_solc` tests, which fail on a machine
+with no `solc` installed. `-m "not integration"` has the same problem. Prefer
+selecting on the marker contract over counting tests: `python -m pytest -q -m needs_solc`
+runs the compiler group whatever its size.
 
 `TestPackagedAbiMatchesTheCompiler` is the guard that lets runtime operations trust
 the packaged ABI: it compiles the contract and fails if the checked-in artifact no

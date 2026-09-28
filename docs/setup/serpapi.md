@@ -13,7 +13,7 @@ Sign up at <https://serpapi.com>, then copy the API key from your dashboard.
 
 ## 2. Set the API key
 
-The pipeline reads `SERPAPI_API_KEY` from the process environment at runtime (it does not load `.env` automatically). Set it in your shell before running:
+MukhdaX reads `SERPAPI_API_KEY` from the process environment at runtime. The CLI (`face-id-verification`) and the web server (`python -m face_id_verification.web`) additionally call `load_local_config()` at startup, so a `.env` beside the project is picked up without being exported; a `.env` in an unrelated directory is deliberately ignored, and variables already set in the environment are never overwritten. If you use the library directly, call `load_local_config()` yourself or export the variable. Set it in your shell:
 
 PowerShell:
 
@@ -39,13 +39,13 @@ If the key is valid, the test performs a real SerpApi Google Lens request. If an
 
 ## How it works
 
-1. The image bytes are uploaded to `https://serpapi.com/image`, which returns an `image_id`.
-2. A `google_lens` search is run with that `image_id` (SerpApi's default `type=all`).
+1. The image bytes are uploaded to `https://serpapi.com/image`, which returns an `image_id`. Images over SerpApi's 500 KB limit are first resized and re-encoded in memory.
+2. A `google_lens` search is run with that `image_id`. The request sends only `engine`, `image_id`, and the API key — **no `type` parameter** — so SerpApi applies its own default for that engine, which returns the Visual Matches view.
 3. The documented response sections are parsed:
    - `visual_matches[].link` / `title` -> matching pages
    - `visual_matches[].image` -> visually similar images
    - `visual_matches[].exact_matches` -> full/exact matches (also parsed into each page's `full_matching_images`)
-   - `exact_matches[]` -> parsed too, for responses from a `type=exact_matches` request
+   - `exact_matches[]` -> also parsed, so a response from an explicit `type=exact_matches` request would still be understood (the pipeline does not make one)
    - `results[]` -> page-only fallback
 
 Provider ranking is preserved, not sorted. Pages are deduplicated by URL and images by image URL, keeping the first occurrence. Malformed individual entries are skipped without discarding the rest of the response.
@@ -56,10 +56,10 @@ Provider ranking is preserved, not sorted. Pages are deduplicated by URL and ima
 
 Two further limits:
 
-- `type=all` is the Visual Matches tab only; the Exact Matches tab is a separate request the pipeline does not make, so exact-match evidence comes from the per-result `exact_matches` flag rather than an extra billable call.
+- No `type` parameter is sent, so the response is the engine default — the Visual Matches view. The Exact Matches view is a separate request the pipeline does not make, so exact-match evidence comes from the per-result `exact_matches` flag rather than an extra billable call. MukhdaX does not promise which fields the provider chooses to populate beyond the sections listed above.
 - Related search queries are returned by Lens but are not pages containing the image, so they are not reported as matches.
 
-Images larger than SerpApi's **500 KB** upload limit are compressed in memory (resized + JPEG re-encode) to fit — the original file and its content hash are never modified.
+Images larger than SerpApi's **500 KB** upload limit are compressed in memory (progressive resize + JPEG re-encode) to fit — the original file and its content hash are never modified. If it still cannot fit, the stage fails rather than uploading a truncated or wrong image.
 
 ## What you should NOT do
 

@@ -1,3 +1,7 @@
 # setuptools' sdist only picks up tests/test*.py by default, so the fixtures the
 # distributed test suite depends on would ship without tests/conftest.py.
 include tests/conftest.py
+
+# tests/test_package.py asserts the line-ending policy, so the rules it reads have
+# to travel with the test suite.
+include .gitattributes

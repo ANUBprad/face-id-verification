@@ -1,6 +1,6 @@
 # Deploying the VerificationRegistry contract
 
-The smart contract lives at `src/face_id_verification/contracts/VerificationRegistry.sol` and is bundled with the Python package (no separate compilation step is required).
+The smart contract lives at `src/face_id_verification/contracts/VerificationRegistry.sol` and is bundled with the Python package, together with its compiled ABI at `contracts/VerificationRegistry.abi.json`.
 
 ## What the contract does
 
@@ -22,11 +22,27 @@ print(record)
 # contract_address=..., transaction_hash=0x..., block_number=..., chain_id=11155111
 ```
 
-`deploy_contract()` also validates chain ID (`11155111`), compiles the bundled Solidity source with solc `0.8.28`, waits for the receipt, and verifies code exists at the returned address before returning the `DeploymentRecord`.
+Deployment is the only operation that needs a Solidity compiler, because it is the only one that needs bytecode. It validates chain ID (`11155111`), compiles the bundled Solidity source with solc `0.8.28`, waits for the receipt, and verifies code exists at the returned address before returning the `DeploymentRecord`.
 
-### Note: every path compiles the source
+The compiler is an optional dependency, so install it only if you are deploying:
 
-`record_verification()`, `verify_on_chain()`, and `get_verification_record()` also call `compile_contract()`, even though all three only need the contract ABI. That means recording or reading a record requires a working solc `0.8.28`, not just a deployed address. This is known and currently intended: the contract source is bundled, so the behavior is reproducible, but it is more work than the operations require. The intended fix is to ship the compiled ABI alongside the source and compile only on deployment, which is a packaging change rather than a bug.
+```bash
+pip install "face-id-verification[contract]"
+```
+
+Without it, `deploy_contract()` fails with an explicit message naming the extra. Recording and reading never compile, so a base install is enough for them.
+
+## The packaged ABI
+
+`record_verification()`, `verify_on_chain()`, `get_verification_record()`, and `read_back_verification()` read the ABI from `contracts/VerificationRegistry.abi.json` and never invoke the compiler. A verification therefore needs no solc, no download, and no build directory.
+
+The artifact is generated from the bundled source with the same compiler version and settings `compile_contract()` uses, and a `needs_solc` test (`TestPackagedAbiMatchesTheCompiler`) fails if the two ever diverge. If you change `VerificationRegistry.sol`, regenerate the artifact and run that test:
+
+```bash
+python -m pytest tests/test_blockchain_recording.py -m needs_solc
+```
+
+The ABI is loaded through `importlib.resources`, so it works identically from an installed wheel and from a source checkout.
 
 ## Using the deployed address
 

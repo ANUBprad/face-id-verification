@@ -279,10 +279,10 @@ When a stage cannot run, the report says so explicitly: e.g. `reverse_search_err
 | Computer vision | InsightFace (`buffalo_l`), SCRFD detection, ArcFace 512-dim embeddings, OpenCV, NumPy, onnxruntime |
 | Reverse image search | SerpApi Google Lens API (default); Google Cloud Vision Web Detection (legacy) |
 | Metadata | `requests` + standard HTML / OpenGraph / Twitter meta parsing |
-| Blockchain | `web3.py`, `py-solc-x` (solc 0.8.28), Solidity `^0.8.28`, Ethereum Sepolia |
+| Blockchain | `web3.py`, packaged contract ABI, Solidity `^0.8.28`, Ethereum Sepolia |
 | Backend / core | Python 3.10+, FastAPI, uvicorn, python-multipart |
 | Testing | pytest (unit + credential-gated integration) |
-| Packaging | setuptools / `pyproject.toml`, console script `face-id-verification` |
+| Packaging | setuptools / `pyproject.toml`, console script `face-id-verification`, checked-in contract ABI |
 
 ## Getting started
 
@@ -305,13 +305,24 @@ pip install -e .
 
 For development/testing: `pip install -e ".[dev]"`.
 
-Google Cloud Vision is **not** a runtime dependency. It is only needed for the legacy `GoogleVisionSearcher` provider, which is not the default (the default is SerpApi Google Lens). If you want it:
+The install modes that exist are:
+
+| Command | What it adds |
+| --- | --- |
+| `pip install .` | Base install. Verification, recording, and on-chain read-back all work. |
+| `pip install ".[gcv]"` | The legacy Google Cloud Vision search provider. |
+| `pip install ".[contract]"` | A Solidity compiler, needed **only** to deploy the contract. |
+| `pip install -e ".[dev]"` | Development and test tooling. |
+
+**A base install has no Solidity compiler.** Recording a verification and reading it back use the contract ABI packaged with MukhdaX, so they need no solc, no download, and no build step. Deploying `VerificationRegistry` is the one operation that must compile, because it is the only one that needs bytecode; without the `contract` extra it fails with a message naming the extra to install. See `docs/setup/contract.md`.
+
+Google Cloud Vision is likewise **not** a runtime dependency. It is only needed for the legacy `GoogleVisionSearcher` provider, which is not the default (the default is SerpApi Google Lens). If you want it:
 
 ```bash
 pip install -e ".[gcv]"
 ```
 
-On first face-detection run, InsightFace downloads the `buffalo_l` model pack (needs network; then cached locally). The package bundles the Solidity contract and the web UI, so no extra build step is required.
+On first face-detection run, InsightFace downloads the `buffalo_l` model pack (needs network; then cached locally). The package bundles the Solidity contract, its compiled ABI, and the web UI, so no extra build step is required.
 
 ### 3. Configuration
 
@@ -431,7 +442,7 @@ collection error:
 | `needs_model` | Initializes InsightFace / downloads `buffalo_l` | 6 |
 | `needs_network` | Contacts a remote host (e.g. `randomuser.me`, RPC) | 12 |
 | `needs_credentials` | Requires an API key, private key, or Application Default Credentials | 8 |
-| `needs_solc` | Requires a local `solc` 0.8.28 to compile the contract | 3 |
+| `needs_solc` | Requires a local `solc` 0.8.28 to compile the contract | 7 |
 
 Markers overlap: the Google Vision integration tests carry `integration`,
 `needs_network` and `needs_credentials`, and the face-analyzer integration

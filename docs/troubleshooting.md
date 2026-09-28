@@ -2,6 +2,19 @@
 
 Symptoms, causes, and fixes. The web interface reports one of `complete` / `failed` / `not_run` / `blocked` / `disabled` per stage, which tells you where to look.
 
+## Deploying fails with a `contract` extra message
+
+Cause: you called `deploy_contract()` without the optional Solidity compiler installed. Deploying is the only operation that needs bytecode; recording and reading use the packaged ABI.
+
+Fix:
+
+```bash
+pip install "face-id-verification[contract]"
+python -m solcx.install 0.8.28
+```
+
+If you only need to verify images or read existing records, a base install is enough.
+
 ## Reading the machine-readable failures
 
 Every report carries an `error_details` list. Each entry has a `stage`, a stable `code`, and a `message`:
@@ -92,7 +105,7 @@ Tests that reach a real external boundary skip automatically and say why:
 - `tests/test_sepolia_integration.py` skips without `SEPOLIA_RPC_URL`; the two tests that submit real transactions additionally need `SEPOLIA_PRIVATE_KEY` and `MUKHDAX_TEST_LIVE_WRITES=1`.
 - `tests/test_serpapi_integration.py` skips without `SERPAPI_API_KEY`.
 - `TestFaceAnalyzerIntegration` skips without `MUKHDAX_TEST_ALLOW_DOWNLOADS=1`, because its fixtures download portraits from `randomuser.me`.
-- `TestCompileContract` needs a local `solc` 0.8.28 and is marked `needs_solc`.
+- `TestCompileContract` and `TestPackagedAbiMatchesTheCompiler` need a local `solc` 0.8.28 and are marked `needs_solc`. Install it with `pip install ".[contract]"` followed by `python -m solcx.install 0.8.28`.
 
 This is expected on a machine without those secrets or tools. Run the offline suite:
 
@@ -101,9 +114,13 @@ python -m pytest -q -m "not integration and not needs_model and not needs_solc"
 ```
 
 A bare `python -m pytest -q` is **not** a substitute for either command: with no
-`-m` filter it also runs the six tests that load InsightFace and the three that
+`-m` filter it also runs the six tests that load InsightFace and the tests that
 compile the contract, so it can trigger a ~300 MB model download or fail on a
 machine with no `solc` installed. `-m "not integration"` has the same problem.
+
+`TestPackagedAbiMatchesTheCompiler` is the guard that lets runtime operations trust
+the packaged ABI: it compiles the contract and fails if the checked-in artifact no
+longer matches. Run it whenever you change `VerificationRegistry.sol`.
 
 ## InsightFace model download fails (first run)
 

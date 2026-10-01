@@ -5,9 +5,13 @@ import ReadinessStrip from "./ReadinessStrip";
 import type { VerificationController } from "../hooks/useVerification";
 import { detectedFace, useScanPhase } from "../hooks/useVerification";
 import EvidenceInput from "./EvidenceInput";
+import type { StageState } from "../types/verification";
 
 const HEADLINE = "SEE.\nTRACE.\nVERIFY.";
 const EASE = [0.22, 0.61, 0.36, 1] as const;
+
+/** The plate reads "no report yet" without allocating a new array on every render. */
+const EMPTY_STAGES: StageState[] = [];
 
 /** One shared entrance, stepped by delay, so the hero assembles top to bottom. */
 function Reveal({
@@ -79,10 +83,12 @@ export default function Hero({ verification }: { verification: VerificationContr
             <ForensicFrame
               previewUrl={verification.previewUrl}
               fileName={verification.file?.name ?? null}
+              fileSize={verification.file?.size ?? null}
               dimensions={verification.dimensions}
               phase={scanPhase}
               boundingBox={face?.box ?? null}
               detectionConfidence={face?.confidence ?? null}
+              stages={verification.data?.verification.stages ?? EMPTY_STAGES}
             />
           </Reveal>
 

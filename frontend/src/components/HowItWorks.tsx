@@ -1,41 +1,45 @@
-import { Fingerprint, ScanFace, Waypoints } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
+import { PIPELINE_STAGES } from "../lib/pipeline";
 
-const STEPS = [
-  {
-    icon: ScanFace,
-    title: "Detect",
-    body: "Exactly one face is detected and converted into a numerical representation. Only its SHA-256 fingerprint is kept - the raw embedding is never exposed.",
-  },
-  {
-    icon: Waypoints,
-    title: "Trace",
-    body: "A genuine reverse-image discovery via SerpApi Google Lens finds public pages carrying matching or visually similar images, plus post metadata for provenance.",
-  },
-  {
-    icon: Fingerprint,
-    title: "Verify",
-    body: "Every finding is reduced to a Keccak-256 fingerprint and, optionally, anchored as a real transaction on Ethereum Sepolia - tamper-evident and publicly verifiable.",
-  },
-];
+const EASE = [0.22, 0.61, 0.36, 1] as const;
 
+/**
+ * The same stage list the pipeline animates, stated as prose. One source of truth, so the
+ * explanation cannot drift from what actually runs.
+ */
 export default function HowItWorks() {
+  const reduceMotion = useReducedMotion();
+
   return (
     <section className="section" id="how-it-works" aria-labelledby="how-heading">
-      <p className="eyebrow">Understand the pipeline</p>
-      <h2 id="how-heading">How it works</h2>
+      <div className="section-head">
+        <p className="eyebrow">Method</p>
+        <h2 id="how-heading">How it works</h2>
+      </div>
 
-      <ol className="how-grid">
-        {STEPS.map((step, index) => (
-          <li key={step.title} className="how-card">
-            <span className="how-icon" aria-hidden="true">
-              <step.icon size={20} />
-            </span>
-            <span className="how-num">0{index + 1}</span>
-            <h3>{step.title}</h3>
-            <p>{step.body}</p>
-          </li>
+      <ol className="method">
+        {PIPELINE_STAGES.map((stage, index) => (
+          <motion.li
+            key={stage.name}
+            className="method-step"
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.4 }}
+            transition={{ duration: 0.5, delay: reduceMotion ? 0 : index * 0.05, ease: EASE }}
+          >
+            <span className="method-index">{String(index + 1).padStart(2, "0")}</span>
+            <div className="method-body">
+              <h3>{stage.name}</h3>
+              <p>{stage.role}.</p>
+            </div>
+          </motion.li>
         ))}
       </ol>
+
+      <p className="method-note">
+        Every stage runs on the server. The interface reports what the pipeline returned and
+        never renders a result the pipeline did not produce.
+      </p>
     </section>
   );
 }

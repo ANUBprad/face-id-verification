@@ -1,145 +1,102 @@
-import { useEffect, useState } from "react";
-import type { VerifyResponse } from "../types/verification";
-import { ApiError, verifyImage } from "../lib/api";
-import ImageUploader from "./ImageUploader";
-import VerificationProgress from "./VerificationProgress";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import type { VerificationController } from "../hooks/useVerification";
+import VerificationPipeline from "./VerificationPipeline";
 import VerificationResult from "./VerificationResult";
 
-type Phase = "idle" | "verifying" | "done" | "error";
+const EASE = [0.22, 0.61, 0.36, 1] as const;
 
-const CONTRACT_RE = /^0x[a-fA-F0-9]{40}$/;
+export default function VerificationWorkspace({
+  verification,
+}: {
+  verification: VerificationController;
+}) {
+  const { phase, data } = verification;
+  const reduceMotion = useReducedMotion();
 
-export default function VerificationWorkspace() {
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [blockchainEnabled, setBlockchainEnabled] = useState(false);
-  const [contractAddress, setContractAddress] = useState("");
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [data, setData] = useState<VerifyResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [contractError, setContractError] = useState<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
-
-  const handleFileChange = (next: File | null) => {
-    setFile(next);
-    setPreviewUrl(next ? URL.createObjectURL(next) : null);
-    setPhase("idle");
-  };
-
-  const contractInvalid = blockchainEnabled && contractAddress !== "" && !CONTRACT_RE.test(contractAddress);
-
-  const canVerify = Boolean(file) && (!blockchainEnabled || (!contractInvalid && contractAddress !== ""));
-
-  const runVerification = async () => {
-    if (!file) return;
-    if (blockchainEnabled && contractAddress === "") {
-      setContractError("A checksummed contract address is required when blockchain recording is enabled.");
-      return;
-    }
-    setContractError(null);
-    setError(null);
-    setData(null);
-    setPhase("verifying");
-    try {
-      const response = await verifyImage(file, {
-        blockchainEnabled,
-        contractAddress,
-      });
-      setData(response);
-      setPhase("done");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "The verification request failed unexpectedly.");
-      setPhase("error");
-    }
-  };
+  const enter = reduceMotion
+    ? { opacity: 1 }
+    : { opacity: 1, y: 0, transition: { duration: 0.55, ease: EASE } };
+  const from = reduceMotion ? { opacity: 0 } : { opacity: 0, y: 14 };
 
   return (
     <section className="section" id="verify" aria-labelledby="verify-heading">
-      <p className="eyebrow">Verification workspace</p>
-      <h2 id="verify-heading">Run a verification</h2>
+      <div className="section-head">
+        <p className="eyebrow">Analysis output</p>
+        <h2 id="verify-heading">Verification report</h2>
+      </div>
 
-      <div className="workspace-grid">
-        <div className="panel">
-          <ImageUploader file={file} previewUrl={previewUrl} onChange={handleFileChange} />
-
-          <details className="advanced">
-            <summary>Blockchain options</summary>
-            <div className="adv-body">
-              <div className="field">
-                <label className="check-label">
-                  <input
-                    type="checkbox"
-                    checked={blockchainEnabled}
-                    onChange={(event) => setBlockchainEnabled(event.target.checked)}
-                  />
-                  <span>Record verification on Sepolia testnet</span>
-                </label>
-                <p className="hint">Requires SEPOLIA_RPC_URL and SEPOLIA_PRIVATE_KEY on the server, plus a deployed contract address.</p>
-              </div>
-              <div className="field">
-                <label htmlFor="contract-address">Contract address</label>
-                <input
-                  id="contract-address"
-                  type="text"
-                  value={contractAddress}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="0x..."
-                  onChange={(event) => setContractAddress(event.target.value)}
-                  disabled={!blockchainEnabled}
-                />
-                {contractError && (
-                  <p className="field-error" role="alert">{contractError}</p>
-                )}
-                <p className="hint">Checksummed address of the deployed VerificationRegistry contract.</p>
-              </div>
-            </div>
-          </details>
-
-          <button
-            type="button"
-            className="btn btn-primary btn-verify"
-            onClick={runVerification}
-            disabled={!canVerify || phase === "verifying"}
-          >
-            {phase === "verifying" ? "Verifying\u2026" : "Verify Image"}
-          </button>
-        </div>
-
-        <div className="workspace-status" aria-busy={phase === "verifying"}>
+      <div className="workspace-status" aria-busy={phase === "verifying"}>
+        <AnimatePresence mode="wait" initial={false}>
           {phase === "idle" && (
-            <div className="status-placeholder">
-              <p className="placeholder-title">Awaiting input</p>
+            <motion.div
+              key="idle"
+              className="status-placeholder"
+              initial={from}
+              animate={enter}
+              exit={{ opacity: 0 }}
+            >
+              <p className="placeholder-title">AWAITING EVIDENCE</p>
               <p className="placeholder-body">
-                Select an image and run a verification. The result shows each pipeline stage, the web evidence found, and any on-chain record.
+                Load an image above to begin. The pipeline runs server-side and the report
+                below records every stage, every source it found, and what was written on-chain.
               </p>
-            </div>
+            </motion.div>
           )}
 
-          {phase === "verifying" && <VerificationProgress />}
+          {phase === "verifying" && (
+            <motion.div
+              key="verifying"
+              className="analysis-running"
+              initial={from}
+              animate={enter}
+              exit={{ opacity: 0 }}
+              role="status"
+              aria-live="polite"
+            >
+              <div className="analysis-running-head">
+                <span className="scan-pulse" aria-hidden="true" />
+                <div>
+                  <p className="analysis-running-title">ANALYSIS IN PROGRESS</p>
+                  <p className="analysis-running-sub">
+                    Detection, discovery, and hashing run server-side. The report is written
+                    when the pipeline settles.
+                  </p>
+                </div>
+              </div>
+              {/* Stages are not knowable mid-flight, so the pipeline shows its declared
+                  shape rather than inventing per-stage progress. */}
+              <VerificationPipeline stages={[]} />
+            </motion.div>
+          )}
 
           {phase === "error" && (
-            <div className="error-card" role="alert">
+            <motion.div
+              key="error"
+              className="error-card"
+              role="alert"
+              initial={from}
+              animate={enter}
+              exit={{ opacity: 0 }}
+            >
               <p className="eyebrow">Request interrupted</p>
               <h3>The verification could not be completed</h3>
-              <p className="error-text">{error}</p>
+              <p className="error-text">{verification.error}</p>
               <p className="hint">
-                This usually means the server cannot reach an external service it needs, the request was invalid, or the
-                service is unreachable. Check the server logs for details - credentials are never shown here.
+                This usually means the server cannot reach an external service it needs, or the
+                request was invalid. Credentials are never shown here.
               </p>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPhase("idle")}>
-                Try again
+              <button type="button" className="btn btn-ghost btn-sm" onClick={verification.reset}>
+                Reset workspace
               </button>
-            </div>
+            </motion.div>
           )}
 
-          {phase === "done" && data && <VerificationResult data={data} />}
-        </div>
+          {phase === "done" && data && (
+            <motion.div key="done" initial={from} animate={enter} exit={{ opacity: 0 }}>
+              <VerificationResult data={data} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </section>
   );

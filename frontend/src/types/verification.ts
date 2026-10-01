@@ -1,3 +1,7 @@
+/**
+ * The report mirrors the canonical schema rather than the card layout it replaces. Section
+ * order follows what an operator has to confirm, in the order the pipeline produces it.
+ */
 export interface WebImage {
   url: string;
 }
@@ -50,6 +54,22 @@ export interface BlockchainRecord {
   duplicate: boolean;
 }
 
+/** Returned by the pipeline alongside the submission record. */
+export interface VerificationReadBack {
+  verification_hash: string;
+  exists: boolean;
+  verified: boolean;
+  recorder: string | null;
+  timestamp: number | null;
+}
+
+/** Machine-readable classification for each report-level failure. */
+export interface VerificationError {
+  stage: string;
+  code: string;
+  message: string;
+}
+
 export interface VerificationReport {
   status: string;
   faces: FaceResult[];
@@ -61,6 +81,10 @@ export interface VerificationReport {
   blockchain_error: string | null;
   verification_hash: string | null;
   errors: string[];
+  blockchain_readback: VerificationReadBack | null;
+  blockchain_readback_error: string | null;
+  verification_schema: string | null;
+  error_details: VerificationError[];
 }
 
 export interface RequestEnvelope {

@@ -40,18 +40,11 @@ export default function ImageUploader({ file, previewUrl, onChange }: Props) {
   return (
     <div>
       {!file ? (
-        <div
+        <button
+          type="button"
           className={dragging ? "dropzone dragging" : "dropzone"}
-          role="button"
-          tabIndex={0}
-          aria-label="Upload an image. Drag and drop, or press Enter to browse."
+          aria-label="Upload an image. Drag and drop, or activate to browse."
           onClick={() => inputRef.current?.click()}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              inputRef.current?.click();
-            }
-          }}
           onDragOver={(event) => {
             event.preventDefault();
             setDragging(true);
@@ -66,11 +59,13 @@ export default function ImageUploader({ file, previewUrl, onChange }: Props) {
           <span className="dz-icon" aria-hidden="true">
             <ImageUp size={24} />
           </span>
-          <p className="dz-title">Drop an image here</p>
-          <p className="dz-or">or</p>
-          <span className="btn btn-ghost btn-sm">Choose image</span>
-          <p className="dz-meta">JPG &middot; PNG &middot; WebP &middot; up to 10 MB</p>
-        </div>
+          <span className="dz-title">Drop an image here</span>
+          <span className="dz-or">or</span>
+          <span className="btn btn-ghost btn-sm" aria-hidden="true">
+            Choose image
+          </span>
+          <span className="dz-meta">JPG &middot; PNG &middot; WebP &middot; up to 10 MB</span>
+        </button>
       ) : (
         <div className="preview-panel">
           <div className="preview-head">
@@ -102,7 +97,7 @@ export default function ImageUploader({ file, previewUrl, onChange }: Props) {
         id="file-input"
         type="file"
         accept="image/jpeg,image/png,image/webp"
-        className="hidden-input"
+        hidden
         onChange={(event) => pick(event.target.files?.[0])}
       />
 

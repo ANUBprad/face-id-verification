@@ -1,38 +1,55 @@
-@import url("https://fonts.cdnfonts.com/css/google-sans");
-
 :root {
   color-scheme: dark;
   --bg: #050505;
+  --bg-sticky: rgba(5, 5, 5, 0.85);
   --bg-soft: #080808;
   --surface: #0d0d0d;
   --surface-2: #111111;
   --border: #1c1c1c;
   --border-strong: #2a2a2a;
-  --accent: #5ed29c;
-  --accent-dim: rgba(94, 210, 156, 0.08);
-  --accent-border: rgba(94, 210, 156, 0.4);
   --text: #ffffff;
   --text-soft: #e5e7eb;
   --muted: #8a8f98;
-  --danger: #ec5f5b;
-  --ok: #5ed29c;
+  --accent: #5ed29c;
+  --ok: var(--accent);
   --warn: #e2b93d;
+  --danger: #ec5f5b;
+  --accent-dim: rgba(94, 210, 156, 0.08);
+  --accent-haze: rgba(94, 210, 156, 0.06);
+  --accent-border: rgba(94, 210, 156, 0.4);
+  --accent-hover: #6fe3ac;
+  --accent-soft: #c9ffb0;
+  --on-accent: #04140c;
+  --warn-dim: rgba(226, 185, 61, 0.08);
+  --warn-border: rgba(226, 185, 61, 0.4);
+  --danger-dim: rgba(236, 95, 91, 0.08);
+  --danger-border: rgba(236, 95, 91, 0.4);
   --radius: 12px;
+  /* The shipped CSP allows fonts from 'self' only, so no external webfont may be added
+     here. The stack below is what the interface has been rendering all along. */
   --font:
-    "Google Sans",
-    "Google Sans Text",
-    "Product Sans",
     system-ui,
     -apple-system,
+    BlinkMacSystemFont,
     "Segoe UI",
     Roboto,
+    "Helvetica Neue",
+    Arial,
     sans-serif;
   --font-mono:
     ui-monospace,
     "Cascadia Code",
-    "SFMono-Regular",
+    SFMono-Regular,
+    Menlo,
     Consolas,
+    "Liberation Mono",
+    "DejaVu Sans Mono",
     monospace;
+  --tracking-label: 0.09em;
+  --tracking-eyebrow: 0.16em;
+  --dur: 150ms;
+  --dur-press: 50ms;
+  --ease: ease;
 }
 
 * {
@@ -65,8 +82,8 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(680px 320px at 18% -6%, rgba(94, 210, 156, 0.07), transparent 70%),
-    radial-gradient(520px 280px at 88% -10%, rgba(94, 210, 156, 0.05), transparent 70%);
+    radial-gradient(680px 320px at 18% -6%, var(--accent-haze), transparent 70%),
+    radial-gradient(520px 280px at 88% -10%, var(--accent-haze), transparent 70%);
 }
 
 .skip-link {
@@ -77,12 +94,12 @@ body::before {
   padding: 10px 16px;
   border-radius: 8px;
   background: var(--accent);
-  color: #04140c;
+  color: var(--on-accent);
   font-weight: 700;
   font-size: 14px;
   text-decoration: none;
   transform: translateY(-200%);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur) var(--ease);
 }
 
 .skip-link:focus {
@@ -116,9 +133,38 @@ input {
   border-radius: 4px;
 }
 
+/* One transition contract for every interactive control, so a hover on a link, a card, and
+   a button all respond on the same timing. */
+.nav-links a,
+.footer-links a,
+.mobile-menu a,
+.nav-toggle,
+.remove-btn,
+.how-card,
+.dropzone,
+.field input[type="text"] {
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
 ::selection {
   background: var(--accent);
-  color: #050505;
+  color: var(--bg);
+}
+
+/* Available to assistive technology, absent from the visual layout. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 section {
@@ -140,7 +186,7 @@ section {
   color: var(--accent);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   margin: 0 0 14px;
 }
@@ -158,7 +204,7 @@ section {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: rgba(5, 5, 5, 0.85);
+  background: var(--bg-sticky);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
@@ -196,7 +242,7 @@ section {
 }
 
 .brand-name {
-  background: linear-gradient(90deg, var(--accent), #c9ffb0);
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -269,9 +315,10 @@ section {
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-label);
 }
 
+/* The dot colour alone clears 10:1 against the header, so no glow is added around it. */
 .status-badge .dot {
   width: 8px;
   height: 8px;
@@ -281,12 +328,10 @@ section {
 
 .status-badge.up .dot {
   background: var(--ok);
-  box-shadow: 0 0 8px rgba(94, 210, 156, 0.8);
 }
 
 .status-badge.down .dot {
   background: var(--danger);
-  box-shadow: 0 0 8px rgba(236, 95, 91, 0.8);
 }
 
 /* Hero */
@@ -341,22 +386,21 @@ section {
   font-weight: 700;
   cursor: pointer;
   text-decoration: none;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    transform var(--dur-press) var(--ease);
 }
 
 .btn-primary {
   background: var(--accent);
-  color: #04140c;
-  box-shadow: 0 0 0 1px rgba(94, 210, 156, 0.25), 0 8px 26px -14px rgba(94, 210, 156, 0.85);
+  color: var(--on-accent);
+  box-shadow: 0 8px 26px -14px var(--accent-border);
 }
 
 .btn-primary:hover {
-  background: #6fe3ac;
+  background: var(--accent-hover);
 }
 
 .btn-ghost {
@@ -409,7 +453,6 @@ section {
   border-radius: var(--radius);
   background: var(--surface);
   padding: 26px 22px 24px;
-  transition: border-color 0.15s ease;
 }
 
 .how-icon {
@@ -456,7 +499,7 @@ section {
   inset: -1px;
   border-radius: var(--radius);
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(94, 210, 156, 0.05), transparent 48%);
+  background: linear-gradient(180deg, var(--accent-haze), transparent 48%);
 }
 
 /* Workspace */
@@ -481,19 +524,23 @@ section {
   font-size: 15px;
 }
 
+/* A native button, so keyboard activation and the focus ring come from the platform.
+   font: inherit keeps the surrounding type scale instead of the UA button font. */
 .dropzone {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  width: 100%;
   min-height: 240px;
   border: 1.5px dashed var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface-2);
+  color: inherit;
+  font: inherit;
   text-align: center;
   cursor: pointer;
   padding: 26px;
-  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .dropzone:hover,
@@ -526,7 +573,7 @@ section {
   color: var(--muted);
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-label);
 }
 
 .dz-meta {
@@ -589,14 +636,6 @@ section {
 .remove-btn:hover {
   color: var(--danger);
   border-color: var(--danger);
-}
-
-.hidden-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
 }
 
 .field-error {
@@ -671,13 +710,15 @@ section {
   font-size: 13.5px;
 }
 
+/* The focus ring from the global :focus-visible rule must survive here, so the outline is
+   never cleared; the accent border is an additional cue, not a replacement. */
 .field input[type="text"]:focus {
-  outline: none;
   border-color: var(--accent);
 }
 
 .field input[type="text"]:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .check-label {
@@ -795,7 +836,6 @@ section {
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 10px rgba(94, 210, 156, 0.7);
 }
 
 .p-name {
@@ -808,7 +848,7 @@ section {
   color: var(--muted);
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-label);
 }
 
 /* Result */
@@ -832,13 +872,13 @@ section {
 }
 
 .status-banner.warn {
-  background: rgba(226, 185, 61, 0.08);
-  border-color: rgba(226, 185, 61, 0.4);
+  background: var(--warn-dim);
+  border-color: var(--warn-border);
 }
 
 .status-banner.danger {
-  background: rgba(236, 95, 91, 0.08);
-  border-color: rgba(236, 95, 91, 0.4);
+  background: var(--danger-dim);
+  border-color: var(--danger-border);
 }
 
 .sb-label {
@@ -893,25 +933,35 @@ section {
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: var(--tracking-label);
 }
 
-.stage-label[data-state="completed"] {
+/* These selectors must cover exactly the stage states web/state.py emits:
+   complete, failed, not_run, disabled, blocked, pending. Red is reserved for a stage that
+   actually failed; blocked is an operator-side configuration gap, not a failure. The
+   uppercase label text is the primary channel, and colour only reinforces it. */
+.stage-label[data-state="complete"] {
   color: var(--ok);
 }
 
-.stage-label[data-state="failed"],
-.stage-label[data-state="blocked"] {
+.stage-label[data-state="failed"] {
   color: var(--danger);
 }
 
-.stage-label[data-state="skipped"],
-.stage-label[data-state="not_run"] {
-  color: var(--muted);
-}
-
+.stage-label[data-state="blocked"],
 .stage-label[data-state="pending"] {
   color: var(--warn);
+}
+
+/* Disabled was requested to be off, so it recedes; not_run is the neutral consequence of
+   an earlier stage and keeps the ordinary muted weight. */
+.stage-label[data-state="disabled"] {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.stage-label[data-state="not_run"] {
+  color: var(--muted);
 }
 
 .stage-detail {
@@ -942,12 +992,6 @@ section {
   color: var(--text);
   font-size: 15px;
   font-weight: 800;
-}
-
-.ev-card-title {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
 }
 
 .ev-empty {
@@ -1020,7 +1064,7 @@ section {
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-label);
 }
 
 .rs-block h4:first-child {
@@ -1124,7 +1168,7 @@ section {
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-label);
   color: var(--accent);
   border: 1px solid var(--accent-border);
   background: var(--accent-dim);
@@ -1176,7 +1220,7 @@ section {
   font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.09em;
+  letter-spacing: var(--tracking-label);
   margin-bottom: 4px;
 }
 
@@ -1191,7 +1235,8 @@ section {
   gap: 6px;
 }
 
-.bc-grid dd[data-state="ok"] {
+/* Reuses the pipeline's own vocabulary rather than a second frontend-only one. */
+.bc-grid dd[data-state="complete"] {
   color: var(--ok);
 }
 
@@ -1207,7 +1252,7 @@ section {
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-label);
   color: var(--ok);
 }
 
@@ -1230,7 +1275,7 @@ section {
   font-size: 12px;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-label);
 }
 
 .fingerprint dd {
@@ -1243,8 +1288,8 @@ section {
 
 /* Error card */
 .error-card {
-  border: 1px solid rgba(236, 95, 91, 0.4);
-  background: rgba(236, 95, 91, 0.07);
+  border: 1px solid var(--danger-border);
+  background: var(--danger-dim);
   border-radius: var(--radius);
   padding: 26px;
 }
@@ -1294,7 +1339,7 @@ section {
   color: var(--accent);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -1392,5 +1437,10 @@ section {
 
   .spin {
     animation: none;
+  }
+
+  /* The one moving transition is the button press settle; colour shifts are not motion. */
+  .btn {
+    transition-property: color, background-color, border-color;
   }
 }

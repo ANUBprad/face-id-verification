@@ -78,7 +78,7 @@ export default function BlockchainProof({
         </div>
         <div>
           <dt>Status</dt>
-          <dd data-state={record.confirmed ? "ok" : "pending"}>
+          <dd data-state={record.confirmed ? "complete" : "pending"}>
             {record.confirmed ? "Confirmed on-chain" : "Pending"}
           </dd>
         </div>

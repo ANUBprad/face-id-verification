@@ -111,7 +111,7 @@ export default function VerificationWorkspace() {
           </button>
         </div>
 
-        <div className="workspace-status">
+        <div className="workspace-status" aria-busy={phase === "verifying"}>
           {phase === "idle" && (
             <div className="status-placeholder">
               <p className="placeholder-title">Awaiting input</p>

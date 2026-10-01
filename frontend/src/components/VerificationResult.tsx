@@ -34,6 +34,10 @@ export default function VerificationResult({ data }: { data: VerifyResponse }) {
           {copied ? <Check size={14} aria-hidden="true" /> : <Clipboard size={14} aria-hidden="true" />}
           {copied ? "Copied" : "Copy JSON"}
         </button>
+        {/* The button label changes in place, which a screen reader misses without this. */}
+        <span className="sr-only" role="status">
+          {copied ? "Verification report copied to clipboard" : ""}
+        </span>
       </div>
 
       <div className={`status-banner ${failed ? "danger" : warned ? "warn" : "ok"}`}>

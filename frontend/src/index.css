@@ -1924,6 +1924,7 @@ input {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--accent);
+  min-width: 0;
 }
 
 .page-meta {
@@ -1932,6 +1933,7 @@ input {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--label-fg-dim);
+  min-width: 0;
 }
 
 .trace-entities {
@@ -1998,7 +2000,13 @@ input {
 }
 
 .record-title a {
-  display: inline-flex;
+  /* Block-level flex, not inline-flex. An inline-level flex box sizes itself by
+     shrink-to-fit, and the title inside it is `white-space: nowrap`, so its min-content
+     width equals its full length. That min-content wins over the available width, the link
+     grows to the length of the title, and a long provider page title pushes the whole
+     document sideways. A block-level flex box takes the width of `.record-title` instead,
+     which lets the `.truncate` child shrink and ellipsize. */
+  display: flex;
   align-items: center;
   gap: 6px;
   font-size: 15px;

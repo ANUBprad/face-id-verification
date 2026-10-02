@@ -3,7 +3,7 @@ import { useTypewriter } from "../hooks/useTypewriter";
 import ForensicFrame from "./ForensicFrame";
 import ReadinessStrip from "./ReadinessStrip";
 import type { VerificationController } from "../hooks/useVerification";
-import { detectedFace, useScanPhase } from "../hooks/useVerification";
+import { detectedFace, plateVerdict, useScanPhase } from "../hooks/useVerification";
 import EvidenceInput from "./EvidenceInput";
 import type { StageState } from "../types/verification";
 
@@ -44,6 +44,7 @@ export default function Hero({ verification }: { verification: VerificationContr
   const lines = displayed.split("\n");
   const scanPhase = useScanPhase(verification);
   const face = detectedFace(verification);
+  const verdict = plateVerdict(scanPhase, verification.data, verification.error);
 
   return (
     <section className="hero" aria-labelledby="hero-heading">
@@ -89,6 +90,7 @@ export default function Hero({ verification }: { verification: VerificationContr
               boundingBox={face?.box ?? null}
               detectionConfidence={face?.confidence ?? null}
               stages={verification.data?.verification.stages ?? EMPTY_STAGES}
+              verdict={verdict}
             />
           </Reveal>
 

@@ -552,6 +552,10 @@ input {
   border-color: var(--danger-border);
 }
 
+.frame[data-state="incomplete"] {
+  border-color: var(--warn-border);
+}
+
 .frame-header {
   display: flex;
   align-items: center;
@@ -617,6 +621,14 @@ input {
 
 .frame[data-state="failed"] .frame-state::before {
   background: var(--danger);
+}
+
+.frame[data-state="incomplete"] .frame-state {
+  color: var(--warn);
+}
+
+.frame[data-state="incomplete"] .frame-state::before {
+  background: var(--warn);
 }
 
 @keyframes engine-blink {
@@ -799,20 +811,6 @@ input {
   object-fit: cover;
 }
 
-.frame-badge {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  padding: 3px 8px;
-  background: var(--bg);
-  border: var(--rule-strong);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  color: var(--label-fg);
-}
-
 .corner {
   position: absolute;
   width: 14px;
@@ -943,23 +941,32 @@ input {
   color: var(--accent);
 }
 
-.protocol-step[data-state="failed"] .protocol-dot,
-.protocol-step[data-state="blocked"] .protocol-dot {
+.protocol-step[data-state="failed"] .protocol-dot {
   border-color: var(--danger);
   background: var(--danger);
 }
 
-.protocol-step[data-state="failed"] .protocol-state,
-.protocol-step[data-state="blocked"] .protocol-state {
+.protocol-step[data-state="failed"] .protocol-state {
   border-color: var(--danger-border);
   color: var(--danger);
 }
 
-.protocol-step[data-state="disabled"] .protocol-state,
-.protocol-step[data-state="not_run"] .protocol-state,
+.protocol-step[data-state="blocked"] .protocol-dot,
+.protocol-step[data-state="pending"] .protocol-dot {
+  border-color: var(--warn);
+  background: var(--warn);
+}
+
+.protocol-step[data-state="blocked"] .protocol-state,
 .protocol-step[data-state="pending"] .protocol-state {
   border-color: var(--warn-border);
   color: var(--warn);
+}
+
+.protocol-step[data-state="disabled"] .protocol-state,
+.protocol-step[data-state="not_run"] .protocol-state {
+  border-color: var(--border-strong);
+  color: var(--muted);
 }
 
 /* Only the untouched preview cycles. A cycle would read as progress the server has not
@@ -1022,36 +1029,89 @@ input {
   color: var(--label-fg-dim);
 }
 
+/* Corner brackets read as analysis geometry; the tag sits inside the box so a face
+   near the image edge can never push it outside the clipped stage. */
 .face-box {
   position: absolute;
-  border: 1px solid var(--accent);
-  box-shadow: 0 0 0 1px rgba(5, 5, 5, 0.55);
   pointer-events: none;
 }
 
-.fb-tag,
-.fb-conf {
+.fb-corner {
   position: absolute;
-  top: -19px;
+  width: 14px;
+  height: 14px;
+  border: 0 solid var(--accent);
+}
+
+.fb-tl {
+  top: 0;
+  left: 0;
+  border-top-width: 1.5px;
+  border-left-width: 1.5px;
+}
+
+.fb-tr {
+  top: 0;
+  right: 0;
+  border-top-width: 1.5px;
+  border-right-width: 1.5px;
+}
+
+.fb-bl {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 1.5px;
+  border-left-width: 1.5px;
+}
+
+.fb-br {
+  bottom: 0;
+  right: 0;
+  border-bottom-width: 1.5px;
+  border-right-width: 1.5px;
+}
+
+.fb-tag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  background: var(--accent);
-  color: var(--on-accent);
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 7px;
+  background: rgba(5, 5, 5, 0.82);
+  border: 1px solid var(--accent-border);
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.1em;
   white-space: nowrap;
-}
-
-.fb-tag {
-  left: -1px;
+  color: var(--label-fg);
 }
 
 .fb-conf {
-  right: -1px;
+  color: var(--accent);
+}
+
+/* A short backend verdict directly under the stage strip; the detailed report keeps
+   the full technical account. */
+.frame-verdict {
+  margin: 0;
+  padding: 10px 14px 10px 12px;
+  border-top: var(--rule);
+  border-left: 2px solid var(--label-fg-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--label-fg);
+}
+
+.frame-verdict[data-tone="warn"] {
+  border-left-color: var(--warn);
+}
+
+.frame-verdict[data-tone="bad"] {
+  border-left-color: var(--danger);
 }
 
 /* ---------------------------------------------------------------- evidence input */
@@ -1110,23 +1170,25 @@ input {
   color: var(--label-fg-dim);
 }
 
-.evidence-loaded {
-  padding: 14px;
-  border: var(--rule-strong);
-  border-radius: var(--radius);
-  background: var(--surface);
+.evidence-file-title {
+  margin: 18px 0 0;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  color: #fff;
 }
 
-.evidence-loaded-head {
+.evidence-file-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 10px;
+  padding: 10px 0;
   border-bottom: var(--rule);
 }
 
-.evidence-loaded-name {
+.evidence-file-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1136,26 +1198,38 @@ input {
   color: #fff;
 }
 
-.evidence-loaded-meta {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 12px 0 0;
+.evidence-file-meta {
+  margin: 0;
 }
 
-.evidence-loaded-meta dt {
+.evidence-file-meta > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: var(--rule);
+}
+
+.evidence-file-meta > div:last-child {
+  border-bottom: none;
+}
+
+.evidence-file-meta dt {
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: var(--tracking-label);
   color: var(--label-fg-dim);
+  padding-top: 2px;
 }
 
-.evidence-loaded-meta dd {
-  margin: 3px 0 0;
+.evidence-file-meta dd {
+  margin: 0;
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--label-fg);
+  word-break: break-word;
 }
 
 .remove-btn {
@@ -2353,9 +2427,13 @@ input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .frame-readout,
-  .evidence-loaded-meta {
+  .frame-readout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evidence-file-meta > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
   }
 
   .frame-preview {

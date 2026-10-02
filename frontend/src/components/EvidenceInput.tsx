@@ -92,13 +92,14 @@ export default function EvidenceInput({ verification }: { verification: Verifica
         ) : (
           <motion.div
             key="loaded"
-            className="evidence-loaded"
+            className="evidence-file"
             initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10 }}
             animate={enter}
             exit={exit}
           >
-            <div className="evidence-loaded-head">
-              <span className="evidence-loaded-name">{file.name}</span>
+            <h4 className="evidence-file-title">EVIDENCE FILE</h4>
+            <div className="evidence-file-head">
+              <span className="evidence-file-name">{file.name}</span>
               <button
                 type="button"
                 className="remove-btn"
@@ -109,13 +110,13 @@ export default function EvidenceInput({ verification }: { verification: Verifica
                 <X size={15} aria-hidden="true" />
               </button>
             </div>
-            <dl className="evidence-loaded-meta">
+            <dl className="evidence-file-meta">
               <div>
                 <dt>SIZE</dt>
                 <dd>{formatBytes(file.size)}</dd>
               </div>
               <div>
-                <dt>PIXELS</dt>
+                <dt>DIMENSIONS</dt>
                 <dd>
                   {dimensions ? `${dimensions.width} \u00d7 ${dimensions.height}` : "READING\u2026"}
                 </dd>

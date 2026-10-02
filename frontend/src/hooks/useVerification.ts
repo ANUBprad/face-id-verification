@@ -159,3 +159,76 @@ export function useScanPhase(
   }
   return file ? "armed" : "idle";
 }
+
+/** Headline verdict shown on the Evidence Plate, derived only from real report fields. */
+export interface PlateVerdict {
+  headline: string;
+  tone: "idle" | "busy" | "ok" | "warn" | "bad";
+  /** Concise user-facing reason, taken from the backend's own detail wording. */
+  reason: string | null;
+  /** True when the reason reports a system failure rather than a settled result. */
+  alert: boolean;
+}
+
+/** Backend statuses where the image itself was rejected, rather than the pipeline failing. */
+const REJECTION_STATUSES = new Set([
+  "image_rejected",
+  "no_face_detected",
+  "multiple_faces",
+]);
+
+/**
+ * Maps the scan phase plus the actual report to one headline. A face that analysed
+ * cleanly followed by a blocked downstream stage reads as incomplete, never as a
+ * rejected image; only genuine image rejections read as rejected.
+ */
+export function plateVerdict(
+  scanPhase: "idle" | "armed" | "active" | "settled" | "failed",
+  data: VerifyResponse | null,
+  requestError: string | null,
+): PlateVerdict {
+  if (scanPhase === "active") {
+    return { headline: "ANALYSING", tone: "busy", reason: null, alert: false };
+  }
+  if (scanPhase === "idle") {
+    return { headline: "STANDBY", tone: "idle", reason: null, alert: false };
+  }
+  if (scanPhase === "armed") {
+    return { headline: "EVIDENCE RECEIVED", tone: "busy", reason: null, alert: false };
+  }
+  if (!data) {
+    return {
+      headline: "ANALYSIS INCOMPLETE",
+      tone: "warn",
+      reason: requestError,
+      alert: false,
+    };
+  }
+  const { overall } = data.verification;
+  const { status } = data.report;
+  if (overall.state === "complete") {
+    return { headline: "VERIFIED", tone: "ok", reason: null, alert: false };
+  }
+  if (REJECTION_STATUSES.has(status)) {
+    return { headline: "REJECTED", tone: "bad", reason: overall.detail || null, alert: false };
+  }
+  if (status === "reverse_search_failed") {
+    const reverse = data.verification.stages.find(
+      (stage) => stage.name === "Reverse Image Search",
+    );
+    if (reverse?.state === "blocked") {
+      return {
+        headline: "ANALYSIS INCOMPLETE",
+        tone: "warn",
+        reason: overall.detail || null,
+        alert: false,
+      };
+    }
+  }
+  return {
+    headline: "VERIFICATION FAILED",
+    tone: "bad",
+    reason: overall.detail || null,
+    alert: true,
+  };
+}

@@ -1,8 +1,9 @@
 import type { CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Crosshair, ScanLine } from "lucide-react";
+import { ScanLine } from "lucide-react";
 import { usePointerOffset } from "../hooks/usePointerOffset";
 import { PROTOCOL_STAGES, protocolStageState } from "../lib/pipeline";
+import type { PlateVerdict } from "../hooks/useVerification";
 import type { StageState } from "../types/verification";
 import { formatBytes } from "../lib/utils";
 
@@ -20,18 +21,11 @@ interface Props {
   detectionConfidence: number | null;
   /** Backend stage states, absent until the report exists. */
   stages: StageState[];
+  /** Headline verdict derived from the real report; owns the header status word. */
+  verdict: PlateVerdict;
 }
 
 const EASE = [0.22, 0.61, 0.36, 1] as const;
-
-/** Header wording per phase. Every word here is a state the interface can actually observe. */
-const PHASE_STATUS: Record<ScanPhase, string> = {
-  idle: "STANDBY",
-  armed: "EVIDENCE RECEIVED",
-  active: "ANALYSING",
-  settled: "ANALYSED",
-  failed: "REJECTED",
-};
 
 /** The caption under the readouts, which always has to name what has actually happened. */
 const PHASE_NOTE: Record<ScanPhase, string> = {
@@ -39,7 +33,8 @@ const PHASE_NOTE: Record<ScanPhase, string> = {
   armed: "Evidence loaded. Run the verification to execute SEE through PROOF.",
   active: "ANALYSIS IN PROGRESS \u2014 stage states are reported when the pipeline settles.",
   settled: "Analysis settled. The report below records every stage and source.",
-  failed: "The pipeline reported a failure. Details are in the report below.",
+  failed:
+    "Analysis settled without a complete verification. The report below records every stage.",
 };
 
 /** Staggered offsets for the boot animation, in the order the instrument initialises. */
@@ -170,23 +165,27 @@ export default function ForensicFrame({
   boundingBox,
   detectionConfidence,
   stages,
+  verdict,
 }: Props) {
   const reduceMotion = useReducedMotion() ?? false;
   const { ref, offset } = usePointerOffset(6);
 
   const scanning = phase === "armed" || phase === "active";
-  const settled = phase === "settled";
-  const failed = phase === "failed";
   const hasReport = stages.length > 0;
-  const state = failed
-    ? "failed"
-    : settled
+  // The frame chrome follows the derived verdict, so a blocked downstream stage can never
+  // borrow the rejected-image styling.
+  const state =
+    verdict.tone === "ok"
       ? "settled"
-      : phase === "active"
-        ? "active"
-        : scanning
-          ? "armed"
-          : "idle";
+      : verdict.tone === "bad"
+        ? "failed"
+        : verdict.tone === "warn"
+          ? "incomplete"
+          : phase === "active"
+            ? "active"
+            : phase === "armed"
+              ? "armed"
+              : "idle";
 
   // Cycling implies progress, so the strip only animates while nothing is running.
   const protocolMode = hasReport ? "state" : phase === "active" ? "still" : "preview";
@@ -205,6 +204,8 @@ export default function ForensicFrame({
   const faces = hasReport ? (faceBox ? "01" : "00") : "\u2014";
 
   // Screen readers get the state and the real facts; the animation is decoration around it.
+  // When the visible verdict line carries a live region it announces itself, so the
+  // separate announcer stays silent and nothing is read twice.
   const announcement = (() => {
     if (phase === "idle") return "Provenance engine on standby. No evidence loaded.";
     if (phase === "armed") {
@@ -216,7 +217,12 @@ export default function ForensicFrame({
       return `Evidence received: ${facts.join(", ")}. Ready to verify.`;
     }
     if (phase === "active") return "Analysis in progress on the server.";
-    if (phase === "failed") return "Analysis rejected. The pipeline reported a failure.";
+    if (verdict.reason) return "";
+    if (faceBox && detectionConfidence !== null) {
+      return `Analysis complete. One face detected at ${(
+        detectionConfidence * 100
+      ).toFixed(1)} percent confidence.`;
+    }
     return "Analysis complete. Full report below.";
   })();
 
@@ -228,7 +234,7 @@ export default function ForensicFrame({
           MUKHDAX PROVENANCE ENGINE
         </span>
         <span className="frame-state" data-state={state}>
-          {PHASE_STATUS[phase]}
+          {verdict.headline}
         </span>
       </div>
 
@@ -252,17 +258,28 @@ export default function ForensicFrame({
                 transition={{ type: "spring", stiffness: 120, damping: 22, mass: 0.6 }}
               />
               {faceBox && (
-                <div className="face-box" style={faceBox}>
+                <motion.div
+                  className="face-box"
+                  style={faceBox}
+                  aria-hidden="true"
+                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.35, ease: EASE }}
+                >
+                  <span className="fb-corner fb-tl" />
+                  <span className="fb-corner fb-tr" />
+                  <span className="fb-corner fb-bl" />
+                  <span className="fb-corner fb-br" />
                   <span className="fb-tag">
-                    <Crosshair size={11} aria-hidden="true" />
                     FACE
+                    {detectionConfidence !== null && (
+                      <span className="fb-conf">
+                        {(detectionConfidence * 100).toFixed(1)}%
+                      </span>
+                    )}
                   </span>
-                  {detectionConfidence !== null && (
-                    <span className="fb-conf">{(detectionConfidence * 100).toFixed(1)}%</span>
-                  )}
-                </div>
+                </motion.div>
               )}
-              <span className="frame-badge">{PHASE_STATUS[phase]}</span>
             </motion.div>
           ) : (
             <ProtocolPreview key="preview" reduceMotion={reduceMotion} offset={offset} />
@@ -311,6 +328,19 @@ export default function ForensicFrame({
         })}
       </ol>
 
+      {verdict.reason && (
+        <motion.p
+          className="frame-verdict"
+          data-tone={verdict.tone}
+          role={verdict.alert ? "alert" : "status"}
+          initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: EASE }}
+        >
+          {verdict.reason}
+        </motion.p>
+      )}
+
       <dl className="frame-readout">
         <div>
           <dt>DIMENSIONS</dt>
@@ -325,7 +355,7 @@ export default function ForensicFrame({
           <dd>{faces}</dd>
         </div>
         <div>
-          <dt>SOURCE</dt>
+          <dt>IMAGE</dt>
           <dd className="truncate">{fileName ?? "AWAITING UPLOAD"}</dd>
         </div>
       </dl>

@@ -33,9 +33,16 @@
   --radius-sm: 2px;
   --rule: 1px solid var(--border);
   --rule-strong: 1px solid var(--border-strong);
-  /* The shipped CSP allows fonts from 'self' only, so no external webfont may be added
-     here. The stack below is what the interface renders. */
-  --font:
+  /* The shipped CSP allows fonts from 'self' only; no external webfonts. Century Gothic
+     is used for display/branding when available on the system, with geometric fallbacks. */
+  --font-display:
+    "Century Gothic",
+    "Avenir Next",
+    Avenir,
+    Montserrat,
+    "Trebuchet MS",
+    sans-serif;
+  --font-body:
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
@@ -44,6 +51,8 @@
     "Helvetica Neue",
     Arial,
     sans-serif;
+  --font:
+    var(--font-body);
   --font-mono:
     ui-monospace,
     "Cascadia Code",
@@ -194,9 +203,11 @@ input {
 
 .section h2 {
   margin: 0;
+  font-family: var(--font-display);
   font-size: clamp(28px, 3.4vw, 42px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
   color: #fff;
 }
 
@@ -218,15 +229,16 @@ input {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 11px 18px;
-  border: var(--rule-strong);
+  padding: 9px 16px;
+  border: var(--rule);
   border-radius: var(--radius);
-  background: transparent;
+  background: var(--bg);
   color: var(--label-fg);
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
   cursor: pointer;
   transition:
     color var(--dur) var(--ease),
@@ -302,10 +314,11 @@ input {
 }
 
 .brand-name {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.2em;
+  text-transform: uppercase;
   color: #fff;
 }
 
@@ -319,8 +332,10 @@ input {
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 26px;
+  gap: 24px;
   margin-left: auto;
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
 }
 
 .nav-links a {
@@ -461,10 +476,11 @@ input {
 
 .hero-title {
   margin: 0;
+  font-family: var(--font-display);
   font-size: clamp(48px, 6.6vw, 88px);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 0.98;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.04em;
   color: #fff;
 }
 
@@ -2164,8 +2180,9 @@ input {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.2em;
+  letter-spacing: -0.01em;
   color: #fff;
+  font-family: var(--font-display);
 }
 
 .footer-tagline {

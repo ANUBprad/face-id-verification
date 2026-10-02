@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="MukhdaX terms: intended provenance use, acceptable use, limitations, and user responsibility."
+    />
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+    <title>Terms &amp; Conditions — MukhdaX</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050505;
+        --surface: #0d0d0d;
+        --border: #1c1c1c;
+        --accent: #5ed29c;
+        --text: #e5e7eb;
+        --soft: #b7bbc2;
+        --muted: #8a8f98;
+        --font-display: "Century Gothic", "Avenir Next", Avenir, Montserrat,
+          "Trebuchet MS", sans-serif;
+        --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Arial, sans-serif;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--soft);
+        font-family: var(--font-body);
+        font-size: 15px;
+        line-height: 1.65;
+      }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .wrap { width: 100%; max-width: 760px; margin: 0 auto; padding: 0 24px 72px; }
+      .site-head { border-bottom: 1px solid var(--border); }
+      .site-head-inner {
+        display: flex;
+        align-items: center;
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 24px;
+        height: 62px;
+      }
+      .brand {
+        font-family: var(--font-display);
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.2em;
+        color: #fff;
+        text-decoration: none;
+      }
+      h1 {
+        margin: 48px 0 6px;
+        font-family: var(--font-display);
+        font-size: clamp(30px, 4vw, 42px);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.05;
+        color: #fff;
+      }
+      .effective {
+        margin: 0 0 28px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        color: var(--muted);
+      }
+      h2 {
+        margin: 32px 0 8px;
+        font-family: var(--font-display);
+        font-size: 19px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: #fff;
+      }
+      p { margin: 10px 0; }
+      ul { margin: 10px 0; padding-left: 20px; }
+      li { margin: 6px 0; }
+      a { color: var(--accent); }
+      .placeholder {
+        border-left: 2px solid var(--accent);
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        padding: 12px 14px;
+        font-size: 13.5px;
+      }
+      .back { display: inline-block; margin-top: 36px; }
+    </style>
+  </head>
+  <body>
+    <header class="site-head">
+      <div class="site-head-inner">
+        <a class="brand" href="/" aria-label="MukhdaX home">MUKHDAX</a>
+      </div>
+    </header>
+    <main class="wrap">
+      <h1>Terms &amp; Conditions</h1>
+      <p class="effective">EFFECTIVE 2026-10-02 &middot; MUKHDAX 0.1.0</p>
+
+      <h2>Intended use</h2>
+      <p>
+        MukhdaX is a provenance instrument: it examines an image, traces
+        matching material on the public web, and anchors a fingerprint of that
+        evidence on the Ethereum Sepolia testnet. It is built for provenance
+        research and evidence review.
+      </p>
+
+      <h2>What MukhdaX is not</h2>
+      <ul>
+        <li>It does not verify or establish any person's identity.</li>
+        <li>Provenance evidence is not proof of authenticity.</li>
+        <li>A recorded fingerprint proves that evidence existed in the stated
+          form at the stated time; it says nothing about whether the depicted
+          content is true.</li>
+      </ul>
+
+      <h2>Acceptable use</h2>
+      <ul>
+        <li>Only submit material you have the right to have processed.</li>
+        <li>Do not submit illegal content.</li>
+        <li>
+          Do not abuse the service: automated bulk submission, attempts to
+          exhaust the paid-search budget, or interference with the service may
+          be rate-limited or refused.
+        </li>
+      </ul>
+
+      <h2>Limitations</h2>
+      <ul>
+        <li>
+          Discovery depends on an external reverse-image-search provider and
+          the public pages it can see. There is no guarantee of search
+          completeness: absence of matches is not proof of absence.
+        </li>
+        <li>
+          Metadata is whatever the discovered pages publicly expose and may be
+          wrong, stale, or manipulated.
+        </li>
+        <li>
+          On-chain recording writes to a public test network and stores a
+          digest only; a submitted transaction is not the same as a verified
+          read-back, and the interface reports the two separately.
+        </li>
+        <li>
+          The service may be unavailable, slow, or capacity-limited. Paid and
+          external dependencies can fail independently of MukhdaX itself.
+        </li>
+      </ul>
+
+      <h2>Your responsibility</h2>
+      <p>
+        You are responsible for the material you upload and for how you
+        interpret and act on a verification report. Do not use a report as the
+        sole basis for accusations, moderation decisions, or any action
+        affecting a person.
+      </p>
+
+      <h2>Operator and governing terms</h2>
+      <p class="placeholder">
+        Operator: [OPERATOR]. Governing law and jurisdiction: [GOVERNING LAW /
+        JURISDICTION]. These placeholders must be completed by whoever deploys
+        this instance; nothing here invents a legal entity or venue.
+      </p>
+
+      <a class="back" href="/">Return to MukhdaX</a>
+    </main>
+  </body>
+</html>

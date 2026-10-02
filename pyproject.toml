@@ -57,6 +57,7 @@ face_id_verification = [
     "web/static/*",
     "web/static/assets/*",
     "web/static/assets/branding/*",
+    "web/pages/*",
 ]
 
 [tool.pytest.ini_options]

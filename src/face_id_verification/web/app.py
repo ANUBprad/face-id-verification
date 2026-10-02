@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from web3 import Web3
@@ -209,6 +209,25 @@ def _index_html() -> str:
         raise HTTPException(status_code=500, detail="Web interface is unavailable")
 
 
+def _page_html(name: str) -> str:
+    """Load a bundled standalone page (privacy, terms, 404) by file name."""
+    try:
+        resource = resources.files("face_id_verification").joinpath(
+            "web", "pages", name
+        )
+        return resource.read_text(encoding="utf-8")
+    except Exception:
+        logger.exception("Failed to load web page %s", name)
+        raise HTTPException(status_code=500, detail="Web interface is unavailable")
+
+
+# Public website pages served alongside the single-page interface. API paths are
+# never listed here and never appear in the sitemap.
+PUBLIC_PAGES = ("/", "/privacy", "/terms")
+
+ROBOTS_TXT = "User-agent: *\nAllow: /\nDisallow: /api/\n"
+
+
 def _package_version() -> str:
     try:
         return metadata.version("face-id-verification")
@@ -303,6 +322,31 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return _index_html()
+
+    @app.get("/privacy", response_class=HTMLResponse)
+    def privacy() -> str:
+        return _page_html("privacy.html")
+
+    @app.get("/terms", response_class=HTMLResponse)
+    def terms() -> str:
+        return _page_html("terms.html")
+
+    @app.get("/robots.txt", response_class=PlainTextResponse)
+    def robots() -> str:
+        return ROBOTS_TXT
+
+    @app.get("/sitemap.xml")
+    def sitemap(request: Request) -> Response:
+        # Absolute URLs are built from the incoming Host, so no production domain
+        # is invented or configured: the sitemap always describes this instance.
+        base = str(request.base_url).rstrip("/")
+        urls = "".join(f"<url><loc>{base}{page}</loc></url>" for page in PUBLIC_PAGES)
+        body = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            f"{urls}</urlset>"
+        )
+        return Response(content=body, media_type="application/xml")
 
     assets_root = resources.files("face_id_verification").joinpath(
         "web", "static", "assets"
@@ -425,6 +469,14 @@ def create_app(
                 )
             ),
         }
+
+    # Registered last so every real route and the /assets mount match first. Unknown
+    # API paths keep the JSON error shape; everything else gets the branded page.
+    @app.get("/{path:path}", response_class=HTMLResponse)
+    def not_found(path: str) -> Response:
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return HTMLResponse(content=_page_html("notfound.html"), status_code=404)
 
     return app
 

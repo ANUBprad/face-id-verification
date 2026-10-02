@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="MukhdaX privacy policy: what happens to an uploaded image, reverse-image discovery, metadata reads, and on-chain digests."
+    />
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+    <title>Privacy Policy — MukhdaX</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050505;
+        --surface: #0d0d0d;
+        --border: #1c1c1c;
+        --border-strong: #2a2a2a;
+        --accent: #5ed29c;
+        --text: #e5e7eb;
+        --soft: #b7bbc2;
+        --muted: #8a8f98;
+        --font-display: "Century Gothic", "Avenir Next", Avenir, Montserrat,
+          "Trebuchet MS", sans-serif;
+        --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Arial, sans-serif;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--soft);
+        font-family: var(--font-body);
+        font-size: 15px;
+        line-height: 1.65;
+      }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .wrap { width: 100%; max-width: 760px; margin: 0 auto; padding: 0 24px 72px; }
+      .site-head {
+        border-bottom: 1px solid var(--border);
+        background: rgba(5, 5, 5, 0.9);
+      }
+      .site-head-inner {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 24px;
+        height: 62px;
+      }
+      .brand {
+        font-family: var(--font-display);
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.2em;
+        color: #fff;
+        text-decoration: none;
+      }
+      h1 {
+        margin: 48px 0 6px;
+        font-family: var(--font-display);
+        font-size: clamp(30px, 4vw, 42px);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.05;
+        color: #fff;
+      }
+      .effective {
+        margin: 0 0 28px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        color: var(--muted);
+      }
+      h2 {
+        margin: 32px 0 8px;
+        font-family: var(--font-display);
+        font-size: 19px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: #fff;
+      }
+      p { margin: 10px 0; }
+      ul { margin: 10px 0; padding-left: 20px; }
+      li { margin: 6px 0; }
+      code { font-family: var(--font-mono); font-size: 13px; color: var(--text); }
+      a { color: var(--accent); }
+      .placeholder {
+        border-left: 2px solid var(--accent);
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        padding: 12px 14px;
+        font-size: 13.5px;
+      }
+      .back { display: inline-block; margin-top: 36px; }
+    </style>
+  </head>
+  <body>
+    <header class="site-head">
+      <div class="site-head-inner">
+        <a class="brand" href="/" aria-label="MukhdaX home">MUKHDAX</a>
+      </div>
+    </header>
+    <main class="wrap">
+      <h1>Privacy Policy</h1>
+      <p class="effective">EFFECTIVE 2026-10-02 &middot; MUKHDAX 0.1.0</p>
+
+      <h2>What MukhdaX does</h2>
+      <p>
+        MukhdaX is an image-provenance instrument. You submit an image; the
+        server detects faces, searches the public web for visually matching
+        pages, reads metadata from the pages it finds, reduces the evidence to
+        a canonical fingerprint, and can record that fingerprint on the
+        Ethereum Sepolia testnet. It reports provenance evidence, not identity.
+      </p>
+
+      <h2>Image upload and processing</h2>
+      <ul>
+        <li>
+          The image you select is sent to the MukhdaX server as part of a
+          verification request (<code>POST /api/verify</code>).
+        </li>
+        <li>
+          The server writes the upload to a temporary file, runs the pipeline,
+          and removes the temporary file when the request settles, whether it
+          succeeds or fails.
+        </li>
+        <li>
+          Supported formats are JPG, PNG, and WebP, up to 10&nbsp;MB. Files
+          that are unreadable, unsupported, or decode to unreasonable dimensions
+          are refused before any search or recording runs.
+        </li>
+      </ul>
+
+      <h2>Reverse-image discovery</h2>
+      <p>
+        The server forwards the image to its configured reverse-image-search
+        provider (SerpApi Google Lens) for visual matching, and reads metadata
+        from the pages the provider returns. Those pages are public web pages;
+        the metadata read is whatever those pages publicly expose.
+      </p>
+
+      <h2>Face data</h2>
+      <p>
+        Face detection runs on the server. The raw face embedding is never
+        written on-chain and is never returned as evidence: it is reduced to a
+        SHA-256 fingerprint before it enters the canonical evidence payload.
+      </p>
+
+      <h2>Blockchain records</h2>
+      <p>
+        When on-chain recording is enabled, exactly one value is written to the
+        Sepolia testnet: a Keccak-256 digest of the canonical evidence payload.
+        The image, the face embedding, and page contents are never written
+        on-chain. Testnet records are public by the nature of the network.
+      </p>
+
+      <h2>Retention</h2>
+      <p>
+        Uploaded image bytes are held only for the duration of the verification
+        request and are deleted afterwards. MukhdaX keeps no user accounts and
+        stores no raw images or raw embeddings as part of its normal operation.
+        No specific archival retention period is offered here because no archive
+        is kept.
+      </p>
+
+      <h2>Cookies and tracking</h2>
+      <p>
+        MukhdaX sets no cookies, runs no analytics, and loads no third-party
+        tracking resources. The interface stores nothing in your browser: no
+        <code>localStorage</code>, no <code>sessionStorage</code>, no
+        fingerprinting.
+      </p>
+
+      <h2>Technical request data</h2>
+      <p>
+        Like any web service, the server necessarily observes the connection it
+        answers (for example, the client address used for rate limiting abuse
+        protection). That operational handling exists to keep a paid-search
+        endpoint from being exhausted, not to profile visitors.
+      </p>
+
+      <h2>Contact</h2>
+      <p class="placeholder">
+        Operator contact: [OPERATOR CONTACT]. Replace this placeholder at
+        deployment time with a real way to reach the person or team running
+        this instance.
+      </p>
+
+      <a class="back" href="/">Return to MukhdaX</a>
+    </main>
+  </body>
+</html>

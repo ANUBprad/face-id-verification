@@ -27,6 +27,8 @@ export default function Footer() {
         <nav className="footer-links" aria-label="Footer">
           <a href="#how-it-works">How it works</a>
           <a href="#verify">Verify</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
           <a
             href="https://github.com/ANUBprad/face-id-verification"
             target="_blank"

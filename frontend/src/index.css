@@ -566,9 +566,9 @@ input {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: var(--tracking-label);
   color: var(--label-fg);
 }
@@ -1091,9 +1091,9 @@ input {
 }
 
 .dz-title {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: var(--tracking-label);
   color: #fff;
 }
@@ -1130,6 +1130,7 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 12.5px;
   color: #fff;
@@ -1481,9 +1482,9 @@ input {
 
 .placeholder-title {
   margin: 0 0 8px;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: var(--tracking-label);
   color: var(--label-fg);
 }
@@ -1522,9 +1523,9 @@ input {
 
 .analysis-running-title {
   margin: 0 0 4px;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: var(--tracking-label);
   color: #fff;
 }
@@ -1721,9 +1722,9 @@ input {
 
 .report-title {
   margin: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: var(--tracking-label);
   color: #fff;
 }
@@ -1770,8 +1771,9 @@ input {
 }
 
 .report-result-value {
+  font-family: var(--font-display);
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.01em;
   color: #fff;
 }
@@ -1943,6 +1945,12 @@ input {
   min-width: 0;
 }
 
+.image-links a svg,
+.page-link svg,
+.record-title a svg {
+  flex: none;
+}
+
 .page-meta {
   display: block;
   margin-top: 3px;
@@ -1969,9 +1977,11 @@ input {
 }
 
 .trace-entities em {
+  flex: none;
   font-family: var(--font-mono);
   font-size: 11px;
   font-style: normal;
+  white-space: nowrap;
   color: var(--label-fg-dim);
 }
 
@@ -2177,16 +2187,16 @@ input {
 }
 
 .footer-name {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: #fff;
   font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: #fff;
 }
 
 .footer-tagline {
   margin: 6px 0 0;
+  font-family: var(--font-display);
   color: var(--accent);
   font-size: 13px;
 }
